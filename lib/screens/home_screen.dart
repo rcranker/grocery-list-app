@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/intl.dart';
 import '../models/grocery_item.dart';
 import '../models/store.dart';
 import '../services/storage_service.dart';
+import '../services/user_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,11 +15,70 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   Store? _currentStore;
+  String _currentUser = 'Me';
 
   @override
   void initState() {
     super.initState();
     _currentStore = StorageService.getDefaultStore();
+    _loadUserName();
+  }
+
+  Future<void> _loadUserName() async {
+    final userName = await UserService.getUserName();
+    setState(() {
+      _currentUser = userName;
+    });
+    
+    // Prompt for name if not set
+    final hasName = await UserService.hasUserName();
+    if (!hasName) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showSetUserNameDialog();
+      });
+    }
+  }
+
+  void _showSetUserNameDialog() {
+    final TextEditingController controller = TextEditingController(text: _currentUser);
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Welcome!'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('What should we call you?'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'Your Name',
+                hintText: 'e.g., Mom, Dad, Sarah',
+              ),
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                UserService.setUserName(controller.text.trim());
+                setState(() {
+                  _currentUser = controller.text.trim();
+                });
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
   }
 
   Color get _currentColor {
@@ -40,6 +101,8 @@ class _HomeScreenState extends State<HomeScreen> {
       aisle: aisle,
       createdAt: DateTime.now(),
       storeId: _currentStore?.id,
+      addedBy: _currentUser,
+      addedAt: DateTime.now(),
     );
     StorageService.addItem(item);
   }
@@ -153,34 +216,34 @@ class _HomeScreenState extends State<HomeScreen> {
 
             return SingleChildScrollView(
               child: Column(
-                 mainAxisSize: MainAxisSize.min,
-                 children: stores.map((store) {
-                   final isSelected = _currentStore?.id == store.id;
-                   return ListTile(
-                     leading: CircleAvatar(
-                       backgroundColor: Color(store.colorValue),
-                       radius: 12,
-                     ),
-                     title: Text(store.name),
-                     subtitle: store.isDefault ? const Text('Default') : null,
-                     trailing: Icon(
-                       isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-                       color: isSelected ? Theme.of(context).colorScheme.primary : null,
-                     ),
-                     onTap: () {
-                       setState(() {
-                         _currentStore = store;
-                       });
-                       Navigator.pop(context);
-                     },
-                     onLongPress: () {
-                       Navigator.pop(context);
-                       _showEditStoreDialog(store, box.values.toList().indexOf(store));
-                     },
-                   );
-                 }).toList(),
-               ),
-             );
+                mainAxisSize: MainAxisSize.min,
+                children: stores.map((store) {
+                  final isSelected = _currentStore?.id == store.id;
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Color(store.colorValue),
+                      radius: 12,
+                    ),
+                    title: Text(store.name),
+                    subtitle: store.isDefault ? const Text('Default') : null,
+                    trailing: Icon(
+                      isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                      color: isSelected ? Theme.of(context).colorScheme.primary : null,
+                    ),
+                    onTap: () {
+                      setState(() {
+                        _currentStore = store;
+                      });
+                      Navigator.pop(context);
+                    },
+                    onLongPress: () {
+                      Navigator.pop(context);
+                      _showEditStoreDialog(store, box.values.toList().indexOf(store));
+                    },
+                  );
+                }).toList(),
+              ),
+            );
           },
         ),
         actions: [
@@ -284,6 +347,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       name: controller.text.trim(),
                       createdAt: DateTime.now(),
                       colorValue: selectedColor.toARGB32(),
+                      notes: '',
                     );
                     StorageService.addStore(store);
                     Navigator.pop(context);
@@ -411,8 +475,56 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showNotesDialog() {
+    if (_currentStore == null) return;
+
+    final stores = StorageService.getStoresBox().values.toList();
+    final storeIndex = stores.indexWhere((s) => s.id == _currentStore!.id);
+    if (storeIndex == -1) return;
+
+    final TextEditingController notesController = TextEditingController(text: _currentStore!.notes);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${_currentStore!.name} - Notes'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: TextField(
+            controller: notesController,
+            decoration: const InputDecoration(
+              hintText: 'Add notes or reminders for this store...',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 6,
+            minLines: 5,
+            textCapitalization: TextCapitalization.sentences,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              StorageService.updateStoreNotes(storeIndex, notesController.text);
+              setState(() {
+                _currentStore = _currentStore!.copyWith(notes: notesController.text);
+              });
+              Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hasNotes = _currentStore?.notes.isNotEmpty ?? false;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(_currentStore?.name ?? 'My Grocery List'),
@@ -420,74 +532,139 @@ class _HomeScreenState extends State<HomeScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
+            icon: Icon(hasNotes ? Icons.notes : Icons.note_add),
+            onPressed: _showNotesDialog,
+            tooltip: 'Store Notes',
+          ),
+          IconButton(
             icon: const Icon(Icons.store),
             onPressed: _showStoreSelector,
             tooltip: 'Select Store',
           ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'change_name') {
+                _showSetUserNameDialog();
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'change_name',
+                child: Row(
+                  children: [
+                    const Icon(Icons.person),
+                    const SizedBox(width: 8),
+                    Text('Change Name ($_currentUser)'),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
-      body: ValueListenableBuilder(
-        valueListenable: StorageService.getItemsBox().listenable(),
-        builder: (context, Box<GroceryItem> box, _) {
-          final allItems = box.values.toList();
-          final items = _currentStore == null
-              ? allItems
-              : allItems.where((item) => item.storeId == _currentStore?.id).toList();
-
-          if (items.isEmpty) {
-            return const Center(
-              child: Text(
-                'No items yet.\nTap + to add your first item!',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, color: Colors.grey),
+      body: Column(
+        children: [
+          if (hasNotes)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _currentColor.withOpacity(0.1),
+                border: Border(
+                  bottom: BorderSide(color: _currentColor.withOpacity(0.3)),
+                ),
               ),
-            );
-          }
+              child: Row(
+                children: [
+                  Icon(Icons.notes, color: _currentColor, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _currentStore!.notes,
+                      style: TextStyle(
+                        color: _currentColor.withOpacity(0.8),
+                        fontSize: 13,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.edit, size: 18, color: _currentColor),
+                    onPressed: _showNotesDialog,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: ValueListenableBuilder(
+              valueListenable: StorageService.getItemsBox().listenable(),
+              builder: (context, Box<GroceryItem> box, _) {
+                final allItems = box.values.toList();
+                final items = _currentStore == null
+                    ? allItems
+                    : allItems.where((item) => item.storeId == _currentStore?.id).toList();
 
-          return ListView.builder(
-            itemCount: items.length,
-            itemBuilder: (context, listIndex) {
-              final item = items[listIndex];
-              final boxIndex = box.values.toList().indexOf(item);
-              
-              return Dismissible(
-                key: Key(item.id),
-                background: Container(
-                  color: Colors.red,
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(right: 20),
-                  child: const Icon(Icons.delete, color: Colors.white),
-                ),
-                direction: DismissDirection.endToStart,
-                onDismissed: (_) => _deleteItem(boxIndex),
-                child: ListTile(
-                  leading: Checkbox(
-                    value: item.isChecked,
-                    onChanged: (_) => _toggleItem(item, boxIndex),
-                    activeColor: _currentColor,
-                  ),
-                  title: Text(
-                    item.name,
-                    style: TextStyle(
-                      decoration: item.isChecked
-                          ? TextDecoration.lineThrough
-                          : null,
-                      color: item.isChecked ? Colors.grey : null,
+                if (items.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'No items yet.\nTap + to add your first item!',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 16, color: Colors.grey),
                     ),
-                  ),
-                  subtitle: _buildSubtitle(item),
-                  trailing: Text(
-                    'Qty: ${item.quantity}',
-                    style: TextStyle(
-                      color: item.isChecked ? Colors.grey : Colors.black87,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              );
-            },
-          );
-        },
+                  );
+                }
+
+                return ListView.builder(
+                  itemCount: items.length,
+                  itemBuilder: (context, listIndex) {
+                    final item = items[listIndex];
+                    final boxIndex = box.values.toList().indexOf(item);
+                    
+                    return Dismissible(
+                      key: Key(item.id),
+                      background: Container(
+                        color: Colors.red,
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 20),
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      direction: DismissDirection.endToStart,
+                      onDismissed: (_) => _deleteItem(boxIndex),
+                      child: ListTile(
+                        leading: Checkbox(
+                          value: item.isChecked,
+                          onChanged: (_) => _toggleItem(item, boxIndex),
+                          activeColor: _currentColor,
+                        ),
+                        title: Text(
+                          item.name,
+                          style: TextStyle(
+                            decoration: item.isChecked
+                                ? TextDecoration.lineThrough
+                                : null,
+                            color: item.isChecked ? Colors.grey : null,
+                          ),
+                        ),
+                        subtitle: _buildSubtitle(item),
+                        trailing: Text(
+                          'Qty: ${item.quantity}',
+                          style: TextStyle(
+                            color: item.isChecked ? Colors.grey : Colors.black87,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddItemDialog,
@@ -498,7 +675,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget? _buildSubtitle(GroceryItem item) {
+  Widget _buildSubtitle(GroceryItem item) {
     final List<String> parts = [];
     
     if (item.aisle != null) {
@@ -508,15 +685,45 @@ class _HomeScreenState extends State<HomeScreen> {
     if (item.category != null) {
       parts.add(item.category!);
     }
+
+    // Add "Added by" info
+    final addedInfo = 'Added by ${item.addedBy} • ${_formatDate(item.addedAt)}';
     
-    if (parts.isEmpty) return null;
-    
-    return Text(
-      parts.join(' • '),
-      style: TextStyle(
-        fontSize: 12,
-        color: item.isChecked ? Colors.grey : Colors.black54,
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (parts.isNotEmpty)
+          Text(
+            parts.join(' • '),
+            style: TextStyle(
+              fontSize: 12,
+              color: item.isChecked ? Colors.grey : Colors.black54,
+            ),
+          ),
+        Text(
+          addedInfo,
+          style: TextStyle(
+            fontSize: 11,
+            color: item.isChecked ? Colors.grey : Colors.black45,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      ],
     );
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final itemDate = DateTime(date.year, date.month, date.day);
+
+    if (itemDate == today) {
+      return 'Today ${DateFormat('h:mm a').format(date)}';
+    } else if (itemDate == yesterday) {
+      return 'Yesterday ${DateFormat('h:mm a').format(date)}';
+    } else {
+      return DateFormat('MMM d, h:mm a').format(date);
+    }
   }
 }

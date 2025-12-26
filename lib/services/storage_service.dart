@@ -27,16 +27,17 @@ static Future<void> init() async {
   _storesBox = await Hive.openBox<Store>(_storesBoxName);
   
   // Create default store if none exist
-  if (_storesBox!.isEmpty) {
-    final defaultStore = Store(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: 'My Store',
-      createdAt: DateTime.now(),
-      isDefault: true,
-      colorValue: 0xFF4CAF50, // Green
-    );
-    await _storesBox!.add(defaultStore);
-  }
+if (_storesBox!.isEmpty) {
+  final defaultStore = Store(
+    id: DateTime.now().millisecondsSinceEpoch.toString(),
+    name: 'My Store',
+    createdAt: DateTime.now(),
+    isDefault: true,
+    colorValue: 0xFF4CAF50, // Green
+    notes: '',
+  );
+  await _storesBox!.add(defaultStore);
+}
 }
 
   // Items operations
@@ -87,6 +88,14 @@ static Future<void> init() async {
       return _storesBox!.values.isNotEmpty ? _storesBox!.values.first : null;
     }
   }
+
+  static Future<void> updateStoreNotes(int index, String notes) async {
+  final store = _storesBox!.getAt(index);
+  if (store != null) {
+    final updatedStore = store.copyWith(notes: notes);
+    await _storesBox!.putAt(index, updatedStore);
+  }
+}
 
   static Box<Store> getStoresBox() => _storesBox!;
 }

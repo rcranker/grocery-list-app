@@ -17,14 +17,18 @@ class Store extends HiveObject {
   bool isDefault;
 
   @HiveField(4)
-  int colorValue; // Store color as int (Color.value)
+  int colorValue;
+
+  @HiveField(5)
+  String notes; // Notes/comments for this store
 
   Store({
     required this.id,
     required this.name,
     required this.createdAt,
     this.isDefault = false,
-    this.colorValue = 0xFF4CAF50, // Default green
+    this.colorValue = 0xFF4CAF50,
+    this.notes = '',
   });
 
   Store copyWith({
@@ -33,6 +37,7 @@ class Store extends HiveObject {
     DateTime? createdAt,
     bool? isDefault,
     int? colorValue,
+    String? notes,
   }) {
     return Store(
       id: id ?? this.id,
@@ -40,6 +45,7 @@ class Store extends HiveObject {
       createdAt: createdAt ?? this.createdAt,
       isDefault: isDefault ?? this.isDefault,
       colorValue: colorValue ?? this.colorValue,
+      notes: notes ?? this.notes,
     );
   }
 

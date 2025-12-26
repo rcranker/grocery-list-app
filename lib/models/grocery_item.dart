@@ -29,7 +29,13 @@ class GroceryItem extends HiveObject {
   final DateTime? checkedAt;
 
   @HiveField(8)
-  String? storeId; // For multi-store support
+  String? storeId;
+
+  @HiveField(9)
+  String addedBy; // Who added this item
+
+  @HiveField(10)
+  DateTime addedAt; // When it was added
 
   GroceryItem({
     required this.id,
@@ -41,7 +47,9 @@ class GroceryItem extends HiveObject {
     required this.createdAt,
     this.checkedAt,
     this.storeId,
-  });
+    this.addedBy = 'Unknown',
+    DateTime? addedAt,
+  }) : addedAt = addedAt ?? createdAt;
 
   // Factory constructor for creating from JSON (for Firebase later)
   factory GroceryItem.fromJson(Map<String, dynamic> json) {
@@ -57,6 +65,10 @@ class GroceryItem extends HiveObject {
           ? DateTime.parse(json['checkedAt'] as String)
           : null,
       storeId: json['storeId'] as String?,
+      addedBy: json['addedBy'] as String? ?? 'Unknown',
+      addedAt: json['addedAt'] != null
+          ? DateTime.parse(json['addedAt'] as String)
+          : DateTime.parse(json['createdAt'] as String),
     );
   }
 
@@ -72,6 +84,8 @@ class GroceryItem extends HiveObject {
       'createdAt': createdAt.toIso8601String(),
       'checkedAt': checkedAt?.toIso8601String(),
       'storeId': storeId,
+      'addedBy': addedBy,
+      'addedAt': addedAt.toIso8601String(),
     };
   }
 
@@ -86,6 +100,8 @@ class GroceryItem extends HiveObject {
     DateTime? createdAt,
     DateTime? checkedAt,
     String? storeId,
+    String? addedBy,
+    DateTime? addedAt,
   }) {
     return GroceryItem(
       id: id ?? this.id,
@@ -97,12 +113,15 @@ class GroceryItem extends HiveObject {
       createdAt: createdAt ?? this.createdAt,
       checkedAt: checkedAt ?? this.checkedAt,
       storeId: storeId ?? this.storeId,
+      addedBy: addedBy ?? this.addedBy,
+      addedAt: addedAt ?? this.addedAt,
     );
   }
 
   @override
   String toString() {
     return 'GroceryItem(id: $id, name: $name, quantity: $quantity, '
-           'category: $category, isChecked: $isChecked, storeId: $storeId)';
+           'category: $category, isChecked: $isChecked, storeId: $storeId, '
+           'addedBy: $addedBy)';
   }
 }
