@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
 import '../models/grocery_item.dart';
 import '../models/store.dart';
 import '../services/storage_service.dart';
 import '../services/user_service.dart';
+import '../services/auth_service.dart';
+import '../services/sync_service.dart';
+import '../services/firestore_service.dart';
+import 'household_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,6 +19,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   Store? _currentStore;
   String _currentUser = 'Me';
+  final SyncService _syncService = SyncService();
+  final FirestoreService _firestoreService = FirestoreService();
 
   @override
   void initState() {
@@ -30,7 +35,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _currentUser = userName;
     });
     
-    // Prompt for name if not set
     final hasName = await UserService.hasUserName();
     if (!hasName) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -104,7 +108,8 @@ class _HomeScreenState extends State<HomeScreen> {
       addedBy: _currentUser,
       addedAt: DateTime.now(),
     );
-    StorageService.addItem(item);
+    
+    _syncService.addItem(item);
   }
 
   void _toggleItem(GroceryItem item, int index) {
@@ -112,11 +117,12 @@ class _HomeScreenState extends State<HomeScreen> {
       isChecked: !item.isChecked,
       checkedAt: !item.isChecked ? DateTime.now() : null,
     );
-    StorageService.updateItem(index, updatedItem);
+    
+    _syncService.updateItem(index, updatedItem);
   }
 
-  void _deleteItem(int index) {
-    StorageService.deleteItem(index);
+  void _deleteItem(int index, String itemId) {
+    _syncService.deleteItem(index, itemId);
   }
 
   void _showAddItemDialog() {
@@ -205,10 +211,10 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Select Store'),
-        content: ValueListenableBuilder(
-          valueListenable: StorageService.getStoresBox().listenable(),
-          builder: (context, Box<Store> box, _) {
-            final stores = box.values.toList();
+        content: StreamBuilder<List<Store>>(
+          stream: _syncService.getStoresStream(),
+          builder: (context, snapshot) {
+            final stores = snapshot.data ?? StorageService.getStores();
             
             if (stores.isEmpty) {
               return const Text('No stores available');
@@ -238,7 +244,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                     onLongPress: () {
                       Navigator.pop(context);
-                      _showEditStoreDialog(store, box.values.toList().indexOf(store));
+                      final storeIndex = stores.indexOf(store);
+                      _showEditStoreDialog(store, storeIndex);
                     },
                   );
                 }).toList(),
@@ -349,7 +356,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       colorValue: selectedColor.toARGB32(),
                       notes: '',
                     );
-                    StorageService.addStore(store);
+                    
+                    _syncService.addStore(store);
                     Navigator.pop(context);
                   }
                 },
@@ -436,7 +444,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (!store.isDefault)
                 TextButton(
                   onPressed: () {
-                    StorageService.deleteStore(index);
+                    _syncService.deleteStore(index, store.id);
                     if (_currentStore?.id == store.id) {
                       setState(() {
                         _currentStore = StorageService.getDefaultStore();
@@ -457,7 +465,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       name: controller.text.trim(),
                       colorValue: selectedColor.toARGB32(),
                     );
-                    StorageService.updateStore(index, updatedStore);
+                    
+                    _syncService.updateStore(index, updatedStore);
                     if (_currentStore?.id == store.id) {
                       setState(() {
                         _currentStore = updatedStore;
@@ -475,16 +484,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showNotesDialog() {
+  void _showNotesDialog() async {
     if (_currentStore == null) return;
-
-    final stores = StorageService.getStoresBox().values.toList();
-    final storeIndex = stores.indexWhere((s) => s.id == _currentStore!.id);
-    if (storeIndex == -1) return;
 
     final TextEditingController notesController = TextEditingController(text: _currentStore!.notes);
 
-    showDialog(
+    final saved = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('${_currentStore!.name} - Notes'),
@@ -503,21 +508,190 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () {
-              StorageService.updateStoreNotes(storeIndex, notesController.text);
-              setState(() {
-                _currentStore = _currentStore!.copyWith(notes: notesController.text);
-              });
-              Navigator.pop(context);
-            },
+            onPressed: () => Navigator.pop(context, true),
             child: const Text('Save'),
           ),
         ],
       ),
+    );
+
+    if (saved != true || !mounted) return;
+
+    final updatedStore = _currentStore!.copyWith(notes: notesController.text);
+
+    try {
+      if (_syncService.isLoggedIn) {
+        final uid = _syncService.currentUser!.uid;
+        final householdId = _syncService.householdId;
+        
+        final collection = _firestoreService.getStoresCollection(uid, householdId: householdId);
+        await collection.doc(updatedStore.id).update({'notes': notesController.text});
+      }
+
+      final localStores = StorageService.getStores();
+      final localIndex = localStores.indexWhere((s) => s.id == updatedStore.id);
+      if (localIndex != -1) {
+        await StorageService.updateStore(localIndex, updatedStore);
+      }
+
+      setState(() {
+        _currentStore = updatedStore;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Notes saved!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Logout', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await AuthService().signOut();
+    }
+  }
+
+  Widget _buildCloudSyncedList() {
+    return StreamBuilder<List<GroceryItem>>(
+      stream: _syncService.getItemsStream(storeId: _currentStore?.id),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                const SizedBox(height: 16),
+                Text('Error: ${snapshot.error}'),
+              ],
+            ),
+          );
+        }
+
+        final items = snapshot.data ?? [];
+
+        if (items.isEmpty) {
+          return const Center(
+            child: Text(
+              'No items yet.\nTap + to add your first item!',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+          );
+        }
+
+        return ListView.builder(
+          itemCount: items.length,
+          itemBuilder: (context, index) {
+            final item = items[index];
+            
+            return Dismissible(
+              key: Key(item.id),
+              background: Container(
+                color: Colors.red,
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.only(right: 20),
+                child: const Icon(Icons.delete, color: Colors.white),
+              ),
+              direction: DismissDirection.endToStart,
+              confirmDismiss: (direction) async {
+                final localItems = StorageService.getItems();
+                final hiveIndex = localItems.indexWhere((i) => i.id == item.id);
+                
+                if (hiveIndex != -1) {
+                  _deleteItem(hiveIndex, item.id);
+                  return true;
+                } else if (_syncService.isLoggedIn) {
+                  try {
+                    await _firestoreService.deleteItem(
+                      _syncService.currentUser!.uid, 
+                      item.id
+                    );
+                    return true;
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error deleting: $e')),
+                      );
+                    }
+                    return false;
+                  }
+                }
+                return false;
+              },
+              child: ListTile(
+                leading: Checkbox(
+                  value: item.isChecked,
+                  onChanged: (_) async {
+                    final localItems = StorageService.getItems();
+                    final hiveIndex = localItems.indexWhere((i) => i.id == item.id);
+                    
+                    if (hiveIndex != -1) {
+                      _toggleItem(item, hiveIndex);
+                    } else {
+                      await StorageService.addItem(item);
+                      final newItems = StorageService.getItems();
+                      final newIndex = newItems.indexWhere((i) => i.id == item.id);
+                      if (newIndex != -1) {
+                        _toggleItem(item, newIndex);
+                      }
+                    }
+                  },
+                  activeColor: _currentColor,
+                ),
+                title: Text(
+                  item.name,
+                  style: TextStyle(
+                    decoration: item.isChecked ? TextDecoration.lineThrough : null,
+                    color: item.isChecked ? Colors.grey : null,
+                  ),
+                ),
+                subtitle: _buildSubtitle(item),
+                trailing: Text(
+                  'Qty: ${item.quantity}',
+                  style: TextStyle(
+                    color: item.isChecked ? Colors.grey : Colors.black87,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -527,7 +701,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_currentStore?.name ?? 'My Grocery List'),
+        title: Text(_currentStore?.name ?? 'FamilyCart'),
         backgroundColor: _currentColor,
         foregroundColor: Colors.white,
         actions: [
@@ -535,6 +709,16 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(hasNotes ? Icons.notes : Icons.note_add),
             onPressed: _showNotesDialog,
             tooltip: 'Store Notes',
+          ),
+          IconButton(
+            icon: const Icon(Icons.people),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const HouseholdScreen()),
+              );
+            },
+            tooltip: 'Household',
           ),
           IconButton(
             icon: const Icon(Icons.store),
@@ -546,6 +730,8 @@ class _HomeScreenState extends State<HomeScreen> {
             onSelected: (value) {
               if (value == 'change_name') {
                 _showSetUserNameDialog();
+              } else if (value == 'logout') {
+                _logout();
               }
             },
             itemBuilder: (context) => [
@@ -556,6 +742,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     const Icon(Icons.person),
                     const SizedBox(width: 8),
                     Text('Change Name ($_currentUser)'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('Logout', style: TextStyle(color: Colors.red)),
                   ],
                 ),
               ),
@@ -600,69 +796,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           Expanded(
-            child: ValueListenableBuilder(
-              valueListenable: StorageService.getItemsBox().listenable(),
-              builder: (context, Box<GroceryItem> box, _) {
-                final allItems = box.values.toList();
-                final items = _currentStore == null
-                    ? allItems
-                    : allItems.where((item) => item.storeId == _currentStore?.id).toList();
-
-                if (items.isEmpty) {
-                  return const Center(
-                    child: Text(
-                      'No items yet.\nTap + to add your first item!',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 16, color: Colors.grey),
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  itemCount: items.length,
-                  itemBuilder: (context, listIndex) {
-                    final item = items[listIndex];
-                    final boxIndex = box.values.toList().indexOf(item);
-                    
-                    return Dismissible(
-                      key: Key(item.id),
-                      background: Container(
-                        color: Colors.red,
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 20),
-                        child: const Icon(Icons.delete, color: Colors.white),
-                      ),
-                      direction: DismissDirection.endToStart,
-                      onDismissed: (_) => _deleteItem(boxIndex),
-                      child: ListTile(
-                        leading: Checkbox(
-                          value: item.isChecked,
-                          onChanged: (_) => _toggleItem(item, boxIndex),
-                          activeColor: _currentColor,
-                        ),
-                        title: Text(
-                          item.name,
-                          style: TextStyle(
-                            decoration: item.isChecked
-                                ? TextDecoration.lineThrough
-                                : null,
-                            color: item.isChecked ? Colors.grey : null,
-                          ),
-                        ),
-                        subtitle: _buildSubtitle(item),
-                        trailing: Text(
-                          'Qty: ${item.quantity}',
-                          style: TextStyle(
-                            color: item.isChecked ? Colors.grey : Colors.black87,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+            child: _buildCloudSyncedList(),
           ),
         ],
       ),
@@ -686,7 +820,6 @@ class _HomeScreenState extends State<HomeScreen> {
       parts.add(item.category!);
     }
 
-    // Add "Added by" info
     final addedInfo = 'Added by ${item.addedBy} • ${_formatDate(item.addedAt)}';
     
     return Column(

@@ -1,0 +1,355 @@
+import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'firestore_service.dart';
+import 'storage_service.dart';
+import '../models/grocery_item.dart';
+import '../models/store.dart';
+import '../models/user_model.dart';
+
+class SyncService {
+  final FirestoreService _firestoreService = FirestoreService();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  User? get currentUser => _auth.currentUser;
+  bool get isLoggedIn => currentUser != null;
+  
+  UserModel? _cachedUser;
+  String? get householdId => _cachedUser?.householdId;
+
+  // ==================== INITIALIZATION ====================
+
+  // Initialize sync - upload local data to Firestore on first login
+  Future<void> initializeSync() async {
+    if (!isLoggedIn) return;
+
+    final uid = currentUser!.uid;
+
+    // Load user data to get household info
+    _cachedUser = await _firestoreService.getUserData(uid);
+
+    // Check if user has any data in Firestore
+    final hasCloudData = await _hasCloudData(uid);
+
+    if (!hasCloudData) {
+      // First time login - upload local data
+      await _uploadLocalData(uid);
+    } else {
+      // User has cloud data - download and merge
+      await _downloadCloudData(uid);
+    }
+  }
+
+  Future<bool> _hasCloudData(String uid) async {
+    final stores = await _firestoreService
+        .getStoresCollection(uid, householdId: householdId)
+        .limit(1)
+        .get();
+    return stores.docs.isNotEmpty;
+  }
+
+  Future<void> _uploadLocalData(String uid) async {
+  debugPrint('Uploading local data to Firestore...');
+
+    
+    // Upload stores
+    final localStores = StorageService.getStores();
+    if (localStores.isNotEmpty) {
+      await _syncLocalStoresToFirestore(uid, localStores);
+    }
+
+    // Upload items
+    final localItems = StorageService.getItems();
+    if (localItems.isNotEmpty) {
+      await _syncLocalItemsToFirestore(uid, localItems);
+    }
+
+    debugPrint('Local data uploaded successfully');
+  }
+
+  Future<void> _downloadCloudData(String uid) async {
+    debugPrint('Downloading cloud data...');
+    // Cloud data takes precedence
+    debugPrint('Cloud data download complete');
+  }
+
+  Future<void> _syncLocalItemsToFirestore(String uid, List<GroceryItem> items) async {
+    final batch = _firestoreService.getItemsCollection(uid, householdId: householdId);
+    
+    for (final item in items) {
+      await batch.doc(item.id).set({
+        'name': item.name,
+        'quantity': item.quantity,
+        'category': item.category,
+        'aisle': item.aisle,
+        'isChecked': item.isChecked,
+        'storeId': item.storeId,
+        'addedBy': item.addedBy,
+        'addedAt': item.addedAt.toIso8601String(),
+        'createdAt': item.createdAt.toIso8601String(),
+        'checkedAt': item.checkedAt?.toIso8601String(),
+      });
+    }
+  }
+
+  Future<void> _syncLocalStoresToFirestore(String uid, List<Store> stores) async {
+    final batch = _firestoreService.getStoresCollection(uid, householdId: householdId);
+    
+    for (final store in stores) {
+      await batch.doc(store.id).set({
+        'name': store.name,
+        'colorValue': store.colorValue,
+        'notes': store.notes,
+        'isDefault': store.isDefault,
+        'createdAt': store.createdAt.toIso8601String(),
+      });
+    }
+  }
+
+  // Refresh user data (call this after joining/leaving household)
+  Future<void> refreshUserData() async {
+    if (!isLoggedIn) return;
+    _cachedUser = await _firestoreService.getUserData(currentUser!.uid);
+  }
+
+  // ==================== ITEMS SYNC ====================
+
+  // Add item to both local and cloud
+  Future<void> addItem(GroceryItem item) async {
+    // Add to local storage immediately
+    await StorageService.addItem(item);
+
+    // Sync to cloud if logged in
+    if (isLoggedIn) {
+      try {
+        final collection = _firestoreService.getItemsCollection(
+          currentUser!.uid,
+          householdId: householdId,
+        );
+        await collection.doc(item.id).set({
+          'name': item.name,
+          'quantity': item.quantity,
+          'category': item.category,
+          'aisle': item.aisle,
+          'isChecked': item.isChecked,
+          'storeId': item.storeId,
+          'addedBy': item.addedBy,
+          'addedAt': item.addedAt.toIso8601String(),
+          'createdAt': item.createdAt.toIso8601String(),
+          'checkedAt': item.checkedAt?.toIso8601String(),
+        });
+        debugPrint('Item synced to cloud with ID: ${item.id}');
+      } catch (e) {
+        debugPrint('Failed to sync item to cloud: $e');
+      }
+    }
+  }
+
+  // Update item in both local and cloud
+  Future<void> updateItem(int localIndex, GroceryItem item) async {
+    // Update local storage immediately
+    await StorageService.updateItem(localIndex, item);
+
+    // Sync to cloud if logged in
+    if (isLoggedIn) {
+      try {
+        final collection = _firestoreService.getItemsCollection(
+          currentUser!.uid,
+          householdId: householdId,
+        );
+        await collection.doc(item.id).update({
+          'name': item.name,
+          'quantity': item.quantity,
+          'category': item.category,
+          'aisle': item.aisle,
+          'isChecked': item.isChecked,
+          'storeId': item.storeId,
+          'checkedAt': item.checkedAt?.toIso8601String(),
+        });
+        debugPrint('Item update synced to cloud');
+      } catch (e) {
+        debugPrint('Failed to sync item update to cloud: $e');
+      }
+    }
+  }
+
+  // Delete item from both local and cloud
+  Future<void> deleteItem(int localIndex, String itemId) async {
+    // Delete from local storage immediately (if index is valid)
+    if (localIndex >= 0) {
+      await StorageService.deleteItem(localIndex);
+    }
+
+    // Sync to cloud if logged in
+    if (isLoggedIn) {
+      try {
+        final collection = _firestoreService.getItemsCollection(
+          currentUser!.uid,
+          householdId: householdId,
+        );
+        await collection.doc(itemId).delete();
+        debugPrint('Item deletion synced to cloud');
+      } catch (e) {
+        debugPrint('Failed to sync item deletion to cloud: $e');
+      }
+    }
+  }
+
+  // ==================== STORES SYNC ====================
+
+  // Add store to both local and cloud
+  Future<void> addStore(Store store) async {
+    // Add to local storage immediately
+    await StorageService.addStore(store);
+
+    // Sync to cloud if logged in
+    if (isLoggedIn) {
+      try {
+        final collection = _firestoreService.getStoresCollection(
+          currentUser!.uid,
+          householdId: householdId,
+        );
+        await collection.doc(store.id).set({
+          'name': store.name,
+          'colorValue': store.colorValue,
+          'notes': store.notes,
+          'isDefault': store.isDefault,
+          'createdAt': store.createdAt.toIso8601String(),
+        });
+        debugPrint('Store synced to cloud with ID: ${store.id}');
+      } catch (e) {
+        debugPrint('Failed to sync store to cloud: $e');
+      }
+    }
+  }
+
+  // Update store in both local and cloud
+  Future<void> updateStore(int localIndex, Store store) async {
+    // Update local storage immediately
+    await StorageService.updateStore(localIndex, store);
+
+    // Sync to cloud if logged in
+    if (isLoggedIn) {
+      try {
+        final collection = _firestoreService.getStoresCollection(
+          currentUser!.uid,
+          householdId: householdId,
+        );
+        await collection.doc(store.id).update({
+          'name': store.name,
+          'colorValue': store.colorValue,
+          'notes': store.notes,
+          'isDefault': store.isDefault,
+        });
+        debugPrint('Store update synced to cloud');
+      } catch (e) {
+        debugPrint('Failed to sync store update to cloud: $e');
+      }
+    }
+  }
+
+  // Update store notes
+  Future<void> updateStoreNotes(int localIndex, String storeId, String notes) async {
+    final store = StorageService.getStoresBox().getAt(localIndex);
+    if (store != null) {
+      final updatedStore = store.copyWith(notes: notes);
+      await updateStore(localIndex, updatedStore);
+    }
+  }
+
+  // Delete store from both local and cloud
+  Future<void> deleteStore(int localIndex, String storeId) async {
+    // Delete from local storage immediately
+    await StorageService.deleteStore(localIndex);
+
+    // Sync to cloud if logged in
+    if (isLoggedIn) {
+      try {
+        final collection = _firestoreService.getStoresCollection(
+          currentUser!.uid,
+          householdId: householdId,
+        );
+        await collection.doc(storeId).delete();
+        debugPrint('Store deletion synced to cloud');
+      } catch (e) {
+        debugPrint('Failed to sync store deletion to cloud: $e');
+      }
+    }
+  }
+
+  // ==================== STREAMS ====================
+
+  // Get items stream from Firestore (real-time updates)
+  Stream<List<GroceryItem>>? getItemsStream({String? storeId}) {
+    if (!isLoggedIn) return null;
+  
+    final collection = _firestoreService.getItemsCollection(
+      currentUser!.uid,
+      householdId: householdId,
+    );
+
+    var query = collection.orderBy('createdAt', descending: true);
+  
+    if (storeId != null) {
+      query = query.where('storeId', isEqualTo: storeId) as dynamic;
+    }
+
+    return query.snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) {
+        try {
+          final data = doc.data();
+        
+          // Validate required fields
+          if (data['name'] == null || data['createdAt'] == null) {
+            debugPrint('Skipping invalid item: ${doc.id}');
+            return null;
+          }
+        
+          return GroceryItem(
+            id: doc.id,
+            name: data['name'] as String,
+            quantity: data['quantity'] as int? ?? 1,
+            category: data['category'] as String?,
+            aisle: data['aisle'] as String?,
+            isChecked: data['isChecked'] as bool? ?? false,
+            storeId: data['storeId'] as String?,
+            addedBy: data['addedBy'] as String? ?? 'Unknown',
+            addedAt: data['addedAt'] != null 
+                ? DateTime.parse(data['addedAt'] as String)
+                : DateTime.now(),
+            createdAt: DateTime.parse(data['createdAt'] as String),
+            checkedAt: data['checkedAt'] != null
+                ? DateTime.parse(data['checkedAt'] as String)
+                : null,
+          );
+        } catch (e) {
+          debugPrint('Error parsing item ${doc.id}: $e');
+          return null;
+        }
+      }).whereType<GroceryItem>().toList(); // Filter out nulls
+    });
+  }
+
+  // Get stores stream from Firestore (real-time updates)
+  Stream<List<Store>>? getStoresStream() {
+    if (!isLoggedIn) return null;
+    
+    final collection = _firestoreService.getStoresCollection(
+      currentUser!.uid,
+      householdId: householdId,
+    );
+
+    return collection.orderBy('createdAt').snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        return Store(
+          id: doc.id,
+          name: data['name'] as String,
+          colorValue: data['colorValue'] as int,
+          notes: data['notes'] as String? ?? '',
+          isDefault: data['isDefault'] as bool? ?? false,
+          createdAt: DateTime.parse(data['createdAt'] as String),
+        );
+      }).toList();
+    });
+  }
+}

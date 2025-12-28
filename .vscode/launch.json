@@ -1,0 +1,21 @@
+{
+  // Two Flutter debug configurations for two emulators/devices.
+  // Replace the `deviceId` values with the IDs from `flutter devices` on your machine.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flutter: Launch on emulator-5554",
+      "request": "launch",
+      "type": "dart",
+      "deviceId": "emulator-5554",
+      "program": "lib/main.dart"
+    },
+    {
+      "name": "Flutter: Launch on emulator-5556",
+      "request": "launch",
+      "type": "dart",
+      "deviceId": "emulator-5556",
+      "program": "lib/main.dart"
+    }
+  ]
+}
