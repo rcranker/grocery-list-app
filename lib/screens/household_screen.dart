@@ -4,6 +4,7 @@ import '../models/household.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
+import '../services/sync_service.dart';
 
 class HouseholdScreen extends StatefulWidget {
   const HouseholdScreen({super.key});
@@ -91,28 +92,44 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
     try {
       await _firestoreService.createHousehold(
         name: name,
-        ownerId: _authService.currentUser!.uid,
+      ownerId: _authService.currentUser!.uid,
     );
 
-    if (!mounted) return;
+      if (!mounted) return;
+      // Show dialog telling user to logout/login
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Household Created!'),
+          content: const Text(
+            'Your household has been created successfully.\n\n'
+            'Please logout and login again to start using household features.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _authService.signOut();
+              },
+              child: const Text('Logout Now'),
+            ),
+          ],
+        ),
+      );
     
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Household created successfully!')),
-    );
-
-    await _loadData();
-  } catch (e) {
-    if (!mounted) return;
+    } catch (e) {
+      if (!mounted) return;
     
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Error creating household: $e')),
-    );
-  } finally {
-    if (mounted) {
-      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error creating household: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
-}
 
   Future<void> _joinHousehold() async {
     final codeController = TextEditingController();
@@ -145,7 +162,6 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
     );
 
     if (code == null || code.isEmpty || !mounted) return;
-
     setState(() => _isLoading = true);
 
     try {
@@ -155,12 +171,29 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
       );
 
       if (!mounted) return;
-    
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Joined household successfully!')),
-      );
 
-      await _loadData();
+      // Show dialog telling user to logout/login
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Joined Household!'),
+          content: const Text(
+            'You have successfully joined the household.\n\n'
+            'Please logout and login again to see shared stores and items.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _authService.signOut();
+              },
+              child: const Text('Logout Now'),
+            ),
+          ],
+        ),
+      );
+    
     } catch (e) {
       if (!mounted) return;
     
@@ -172,7 +205,7 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
         setState(() => _isLoading = false);
       }
     }
-  }
+  } //JoinHousehold
 
   Future<void> _leaveHousehold() async {
     final confirmed = await showDialog<bool>(
@@ -208,8 +241,12 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
         userId: _authService.currentUser!.uid,
       );
 
+      // Refresh sync service to clear household ID
+      final syncService = SyncService();
+      await syncService.refreshUserData();
+
       if (!mounted) return;
-    
+      
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Left household successfully')),
       );
@@ -217,7 +254,7 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
       await _loadData();
     } catch (e) {
       if (!mounted) return;
-    
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error leaving household: $e')),
       );
@@ -237,8 +274,6 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
       );
     }
   }
-  
-
 
   @override
   Widget build(BuildContext context) {

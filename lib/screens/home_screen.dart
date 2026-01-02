@@ -21,6 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _currentUser = 'Me';
   final SyncService _syncService = SyncService();
   final FirestoreService _firestoreService = FirestoreService();
+  final AuthService _authService = AuthService();
 
   @override
   void initState() {
@@ -30,17 +31,29 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadUserName() async {
-    final userName = await UserService.getUserName();
-    setState(() {
-      _currentUser = userName;
-    });
-    
-    final hasName = await UserService.hasUserName();
-    if (!hasName) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showSetUserNameDialog();
-      });
-    }
+      // Get display name from Firebase Auth, not local storage
+      final firebaseUser = _authService.currentUser;
+  
+      if (firebaseUser != null && firebaseUser.displayName != null && firebaseUser.displayName!.isNotEmpty) {
+        setState(() {
+        _currentUser = firebaseUser.displayName!;
+        });
+        // Update local storage to match
+        await UserService.setUserName(firebaseUser.displayName!);
+      } else {
+        // Fallback to local storage
+        final userName = await UserService.getUserName();
+        setState(() {
+          _currentUser = userName;
+        });
+      }
+  
+      final hasName = await UserService.hasUserName();
+      if (!hasName && firebaseUser != null) {
+       WidgetsBinding.instance.addPostFrameCallback((_) {
+          _showSetUserNameDialog();
+        });
+      }
   }
 
   void _showSetUserNameDialog() {
@@ -796,6 +809,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           Expanded(
+            key: ValueKey(_currentStore?.id),
             child: _buildCloudSyncedList(),
           ),
         ],

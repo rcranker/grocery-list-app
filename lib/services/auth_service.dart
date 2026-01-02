@@ -29,40 +29,44 @@ class AuthService {
 
   // Register with email and password
   Future<UserModel?> registerWithEmail({
-    required String email,
-    required String password,
-    required String displayName,
-  }) async {
-    try {
-      // Create auth user
-      final userCredential = await _auth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      required String email,
+      required String password,
+      required String displayName,
+    }) async {
+      try {
+        // Create auth user
+        final userCredential = await _auth.createUserWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
 
-      final user = userCredential.user;
-      if (user == null) return null;
+        final user = userCredential.user;
+        if (user == null) return null;
 
-      // Update display name
-      await user.updateDisplayName(displayName);
+        // Update display name in Firebase Auth
+        await user.updateDisplayName(displayName);
 
-      // Create user document in Firestore
-      final userModel = UserModel(
-        uid: user.uid,
-        email: email,
-        displayName: displayName,
-        createdAt: DateTime.now(),
-      );
-
+        // Create user document in Firestore
+        final userModel = UserModel(
+          uid: user.uid,
+          email: email,
+          displayName: displayName,
+          createdAt: DateTime.now(),
+          householdId: null,
+          isPremium: false,
+        );
+        // IMPORTANT: Make sure this actually creates the document
       await _firestore.collection('users').doc(user.uid).set(userModel.toMap());
 
-      return userModel;
-    } on FirebaseAuthException catch (e) {
-      throw _handleAuthException(e);
-    } catch (e) {
-      throw 'Registration failed: $e';
+      debugPrint('User document created for ${user.uid}');
+
+        return userModel;
+      } on FirebaseAuthException catch (e) {
+        throw _handleAuthException(e);
+      } catch (e) {
+        throw 'Registration failed: $e';
+      }
     }
-  }
 
   // Sign in with email and password
   Future<UserModel?> signInWithEmail({
