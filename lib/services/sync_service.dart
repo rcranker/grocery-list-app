@@ -1,5 +1,5 @@
-import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'firestore_service.dart';
 import 'storage_service.dart';
 import '../models/grocery_item.dart';
@@ -7,6 +7,11 @@ import '../models/store.dart';
 import '../models/user_model.dart';
 
 class SyncService {
+  // Singleton pattern
+  static final SyncService _instance = SyncService._internal();
+  factory SyncService() => _instance;
+  SyncService._internal();
+  
   final FirestoreService _firestoreService = FirestoreService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -24,8 +29,14 @@ class SyncService {
 
     final uid = currentUser!.uid;
 
+    debugPrint('=== INITIALIZE SYNC ===');
+    debugPrint('User ID: $uid');
+
     // Load user data to get household info
     _cachedUser = await _firestoreService.getUserData(uid);
+    
+    debugPrint('User loaded: ${_cachedUser?.displayName}');
+    debugPrint('Household ID: ${_cachedUser?.householdId}');
 
     // Check if user has any data in Firestore
     final hasCloudData = await _hasCloudData(uid);
@@ -37,6 +48,8 @@ class SyncService {
       // User has cloud data - download and merge
       await _downloadCloudData(uid);
     }
+    
+    debugPrint('=== SYNC INITIALIZED ===');
   }
 
   Future<bool> _hasCloudData(String uid) async {
@@ -48,8 +61,7 @@ class SyncService {
   }
 
   Future<void> _uploadLocalData(String uid) async {
-  debugPrint('Uploading local data to Firestore...');
-
+    debugPrint('Uploading local data to Firestore...');
     
     // Upload stores
     final localStores = StorageService.getStores();
@@ -109,22 +121,51 @@ class SyncService {
   Future<void> refreshUserData() async {
     if (!isLoggedIn) return;
     _cachedUser = await _firestoreService.getUserData(currentUser!.uid);
+    debugPrint('User data refreshed. Household ID: ${_cachedUser?.householdId}');
+  }
+
+  // Ensure user data is loaded
+  Future<void> ensureUserDataLoaded() async {
+    if (!isLoggedIn) return;
+    
+    if (_cachedUser == null) {
+      debugPrint('Loading user data...');
+      _cachedUser = await _firestoreService.getUserData(currentUser!.uid);
+      debugPrint('User loaded: ${_cachedUser?.displayName}');
+      debugPrint('Household ID: ${_cachedUser?.householdId}');
+    }
   }
 
   // ==================== ITEMS SYNC ====================
 
   // Add item to both local and cloud
   Future<void> addItem(GroceryItem item) async {
+    // Ensure user data is loaded
+    await ensureUserDataLoaded();
+  
+    debugPrint('=== ADD ITEM DEBUG ===');
+    debugPrint('isLoggedIn: $isLoggedIn');
+    debugPrint('currentUser: ${currentUser?.uid}');
+    debugPrint('householdId: $householdId');
+    debugPrint('_cachedUser: $_cachedUser');
+    debugPrint('_cachedUser.householdId: ${_cachedUser?.householdId}');
+  
     // Add to local storage immediately
     await StorageService.addItem(item);
 
     // Sync to cloud if logged in
     if (isLoggedIn) {
       try {
-        final collection = _firestoreService.getItemsCollection(
-          currentUser!.uid,
-          householdId: householdId,
-        );
+        final uid = currentUser!.uid;
+        final hId = householdId;
+      
+        debugPrint('Saving to household: $hId');
+      
+        final collection = _firestoreService.getItemsCollection(uid, householdId: hId);
+      
+        // NEW: Print the actual path
+        debugPrint('Collection path: ${collection.path}');
+      
         await collection.doc(item.id).set({
           'name': item.name,
           'quantity': item.quantity,
@@ -137,15 +178,21 @@ class SyncService {
           'createdAt': item.createdAt.toIso8601String(),
           'checkedAt': item.checkedAt?.toIso8601String(),
         });
+      
         debugPrint('Item synced to cloud with ID: ${item.id}');
+        debugPrint('Full path: ${collection.path}/${item.id}');
+      
       } catch (e) {
         debugPrint('Failed to sync item to cloud: $e');
       }
     }
   }
 
+
   // Update item in both local and cloud
   Future<void> updateItem(int localIndex, GroceryItem item) async {
+    await ensureUserDataLoaded();
+    
     // Update local storage immediately
     await StorageService.updateItem(localIndex, item);
 
@@ -174,6 +221,8 @@ class SyncService {
 
   // Delete item from both local and cloud
   Future<void> deleteItem(int localIndex, String itemId) async {
+    await ensureUserDataLoaded();
+    
     // Delete from local storage immediately (if index is valid)
     if (localIndex >= 0) {
       await StorageService.deleteItem(localIndex);
@@ -198,6 +247,8 @@ class SyncService {
 
   // Add store to both local and cloud
   Future<void> addStore(Store store) async {
+    await ensureUserDataLoaded();
+    
     // Add to local storage immediately
     await StorageService.addStore(store);
 
@@ -224,6 +275,8 @@ class SyncService {
 
   // Update store in both local and cloud
   Future<void> updateStore(int localIndex, Store store) async {
+    await ensureUserDataLoaded();
+    
     // Update local storage immediately
     await StorageService.updateStore(localIndex, store);
 
@@ -258,6 +311,8 @@ class SyncService {
 
   // Delete store from both local and cloud
   Future<void> deleteStore(int localIndex, String storeId) async {
+    await ensureUserDataLoaded();
+    
     // Delete from local storage immediately
     await StorageService.deleteStore(localIndex);
 
@@ -281,14 +336,18 @@ class SyncService {
   // Get items stream from Firestore (real-time updates)
   Stream<List<GroceryItem>>? getItemsStream({String? storeId}) {
     if (!isLoggedIn) return null;
-  
+
+    debugPrint('=== GET ITEMS STREAM ===');
+    debugPrint('householdId: $householdId');
+    debugPrint('storeId filter: $storeId');
+    
     final collection = _firestoreService.getItemsCollection(
       currentUser!.uid,
       householdId: householdId,
     );
 
     var query = collection.orderBy('createdAt', descending: true);
-  
+    
     if (storeId != null) {
       query = query.where('storeId', isEqualTo: storeId) as dynamic;
     }
@@ -297,13 +356,13 @@ class SyncService {
       return snapshot.docs.map((doc) {
         try {
           final data = doc.data();
-        
+          
           // Validate required fields
           if (data['name'] == null || data['createdAt'] == null) {
             debugPrint('Skipping invalid item: ${doc.id}');
             return null;
           }
-        
+          
           return GroceryItem(
             id: doc.id,
             name: data['name'] as String,
@@ -325,7 +384,7 @@ class SyncService {
           debugPrint('Error parsing item ${doc.id}: $e');
           return null;
         }
-      }).whereType<GroceryItem>().toList(); // Filter out nulls
+      }).whereType<GroceryItem>().toList();
     });
   }
 

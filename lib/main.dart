@@ -43,14 +43,6 @@ class AuthWrapper extends StatefulWidget {
 
 class _AuthWrapperState extends State<AuthWrapper> {
   final SyncService _syncService = SyncService();
-  bool _syncInitialized = false;
-
-  Future<void> _initializeSync() async {
-    if (!_syncInitialized) {
-      _syncInitialized = true;
-      await _syncService.initializeSync();
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,11 +58,30 @@ class _AuthWrapperState extends State<AuthWrapper> {
         }
 
         if (snapshot.hasData) {
-          _initializeSync();
-          return const HomeScreen();
+          // User is logged in - initialize sync before showing HomeScreen
+          return FutureBuilder(
+            future: _syncService.initializeSync(),
+            builder: (context, syncSnapshot) {
+              if (syncSnapshot.connectionState == ConnectionState.waiting) {
+                return const Scaffold(
+                  body: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text('Loading your data...'),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              
+              return const HomeScreen();
+            },
+          );
         }
 
-        _syncInitialized = false;
         return const LoginScreen();
       },
     );

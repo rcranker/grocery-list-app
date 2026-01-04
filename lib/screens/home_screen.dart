@@ -590,12 +590,28 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (confirmed == true) {
       await AuthService().signOut();
+    
+      // Force navigation to root (login screen)
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+      
     }
   }
 
   Widget _buildCloudSyncedList() {
+    // Force rebuild by creating a new stream each time
+    final itemsStream = _syncService.getItemsStream(storeId: _currentStore?.id);
+  
+    if (itemsStream == null) {
+      return const Center(
+        child: Text('Please log in to see items'),
+      );
+    }
+
     return StreamBuilder<List<GroceryItem>>(
-      stream: _syncService.getItemsStream(storeId: _currentStore?.id),
+      key: ValueKey('${_currentStore?.id}_${_syncService.householdId}'), // Force rebuild when household changes
+      stream: itemsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -613,6 +629,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         }
+      
 
         final items = snapshot.data ?? [];
 
@@ -627,6 +644,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         return ListView.builder(
+        // ... rest of ListView code
           itemCount: items.length,
           itemBuilder: (context, index) {
             final item = items[index];
