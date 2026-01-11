@@ -8,6 +8,8 @@ import '../services/auth_service.dart';
 import '../services/sync_service.dart';
 import '../services/firestore_service.dart';
 import 'household_screen.dart';
+import '../services/subscription_service.dart';
+import 'paywall_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,6 +30,31 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _currentStore = StorageService.getDefaultStore();
     _loadUserName();
+    _listenToStoreUpdates();
+  }
+
+  void _listenToStoreUpdates() {
+    final storesStream = _syncService.getStoresStream();
+    if (storesStream != null) {
+      storesStream.listen((stores) {
+        if (_currentStore != null && mounted) {
+          // Find the updated version of current store
+          final updatedStore = stores.firstWhere(
+            (s) => s.id == _currentStore!.id,
+            orElse: () => _currentStore!,
+          );
+        
+          // Always update if anything changed
+          if (updatedStore.notes != _currentStore!.notes ||
+              updatedStore.name != _currentStore!.name) {
+            setState(() {
+              _currentStore = updatedStore;
+            });
+            debugPrint('Store updated from stream - notes: ${updatedStore.notes}');
+          }
+        }
+      });
+    }
   }
 
   Future<void> _loadUserName() async {
@@ -54,6 +81,20 @@ class _HomeScreenState extends State<HomeScreen> {
           _showSetUserNameDialog();
         });
       }
+  }
+
+  Future<bool> _checkPremiumOrShowPaywall() async {
+  final isPremium = SubscriptionService().isPremium;
+  
+  if (!isPremium) {
+    final upgraded = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const PaywallScreen()),
+    );
+    return upgraded ?? false;
+  }
+  
+  return true;
   }
 
   void _showSetUserNameDialog() {
@@ -104,12 +145,12 @@ class _HomeScreenState extends State<HomeScreen> {
         : Colors.green;
   }
 
-  void _addItem({
+  Future<void> _addItem({
     required String name,
     int quantity = 1,
     String? category,
     String? aisle,
-  }) {
+  }) async {
     final item = GroceryItem(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       name: name,
@@ -121,8 +162,13 @@ class _HomeScreenState extends State<HomeScreen> {
       addedBy: _currentUser,
       addedAt: DateTime.now(),
     );
-    
-    _syncService.addItem(item);
+  
+    await _syncService.addItem(item);
+  
+    // Force UI refresh
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _toggleItem(GroceryItem item, int index) {
@@ -197,9 +243,9 @@ class _HomeScreenState extends State<HomeScreen> {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               if (nameController.text.trim().isNotEmpty) {
-                _addItem(
+                await _addItem(
                   name: nameController.text.trim(),
                   quantity: int.tryParse(quantityController.text) ?? 1,
                   aisle: aisleController.text.trim().isEmpty 
@@ -209,6 +255,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       ? null 
                       : categoryController.text.trim(),
                 );
+    
+                if (mounted) {
+                  setState(() {});
+                }
+
                 Navigator.pop(context);
               }
             },
@@ -369,6 +420,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       colorValue: selectedColor.toARGB32(),
                       notes: '',
                     );
+
+                    if (mounted) {
+                      setState(() {});
+                    }
                     
                     _syncService.addStore(store);
                     Navigator.pop(context);
@@ -456,40 +511,48 @@ class _HomeScreenState extends State<HomeScreen> {
             actions: [
               if (!store.isDefault)
                 TextButton(
-                  onPressed: () {
-                    _syncService.deleteStore(index, store.id);
-                    if (_currentStore?.id == store.id) {
-                      setState(() {
-                        _currentStore = StorageService.getDefaultStore();
-                      });
+                  onPressed: () async {
+                    if (controller.text.trim().isNotEmpty) {
+                      final updatedStore = store.copyWith(
+                        name: controller.text.trim(),
+                        colorValue: selectedColor.toARGB32(),
+                      );
+      
+                      // Update in cloud first (if premium)
+                      if (_syncService.isLoggedIn && _syncService.canUseCloudFeatures) {
+                        try {
+                          final uid = _syncService.currentUser!.uid;
+                          final householdId = _syncService.householdId;
+                          final collection = _firestoreService.getStoresCollection(uid, householdId: householdId);
+                          await collection.doc(updatedStore.id).update({
+                            'name': updatedStore.name,
+                            'colorValue': updatedStore.colorValue,
+                          });
+                          debugPrint('Store updated in cloud');
+                        } catch (e) {
+                          debugPrint('Error updating store in cloud: $e');
+                        }
+                      }
+      
+                      // Update in local storage
+                      final localStores = StorageService.getStores();
+                      final localIndex = localStores.indexWhere((s) => s.id == store.id);
+                      if (localIndex != -1) {
+                        await StorageService.updateStore(localIndex, updatedStore);
+                      }
+      
+                      // Update current store if this is the selected one
+                      if (_currentStore?.id == store.id) {
+                        setState(() {
+                          _currentStore = updatedStore;
+                        });
+                      }
+      
+                      Navigator.pop(context);
                     }
-                    Navigator.pop(context);
                   },
-                  child: const Text('Delete', style: TextStyle(color: Colors.red)),
+                  child: const Text('Save'),
                 ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () {
-                  if (controller.text.trim().isNotEmpty) {
-                    final updatedStore = store.copyWith(
-                      name: controller.text.trim(),
-                      colorValue: selectedColor.toARGB32(),
-                    );
-                    
-                    _syncService.updateStore(index, updatedStore);
-                    if (_currentStore?.id == store.id) {
-                      setState(() {
-                        _currentStore = updatedStore;
-                      });
-                    }
-                    Navigator.pop(context);
-                  }
-                },
-                child: const Text('Save'),
-              ),
             ],
           );
         },
@@ -537,20 +600,21 @@ class _HomeScreenState extends State<HomeScreen> {
     final updatedStore = _currentStore!.copyWith(notes: notesController.text);
 
     try {
-      if (_syncService.isLoggedIn) {
+
+      // Sync to cloud firstif premium
+      if (_syncService.canUseCloudFeatures && _syncService.isLoggedIn) {
         final uid = _syncService.currentUser!.uid;
         final householdId = _syncService.householdId;
-        
+
         final collection = _firestoreService.getStoresCollection(uid, householdId: householdId);
         await collection.doc(updatedStore.id).update({'notes': notesController.text});
       }
-
+      // Save to local storage 
       final localStores = StorageService.getStores();
       final localIndex = localStores.indexWhere((s) => s.id == updatedStore.id);
       if (localIndex != -1) {
         await StorageService.updateStore(localIndex, updatedStore);
       }
-
       setState(() {
         _currentStore = updatedStore;
       });
@@ -600,23 +664,30 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildCloudSyncedList() {
-    // Force rebuild by creating a new stream each time
+    final isPremium = SubscriptionService().isPremium;
+    debugPrint('=== BUILD LIST ===');
+    debugPrint('isPremium from SubscriptionService: $isPremium');
+    debugPrint('isLoggedIn: ${_syncService.isLoggedIn}');
+  
+    // If not premium or not logged in, show local data
+    if (!isPremium || !_syncService.isLoggedIn) {
+      return _buildLocalList();
+    }
+
+    // Premium users get cloud-synced list
     final itemsStream = _syncService.getItemsStream(storeId: _currentStore?.id);
   
     if (itemsStream == null) {
-      return const Center(
-        child: Text('Please log in to see items'),
-      );
+      return _buildLocalList();
     }
 
     return StreamBuilder<List<GroceryItem>>(
-      key: ValueKey('${_currentStore?.id}_${_syncService.householdId}'), // Force rebuild when household changes
+      key: ValueKey('${_currentStore?.id}_${_syncService.householdId}'),
       stream: itemsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
-        }
-
+        } 
         if (snapshot.hasError) {
           return Center(
             child: Column(
@@ -629,10 +700,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         }
-      
 
         final items = snapshot.data ?? [];
-
         if (items.isEmpty) {
           return const Center(
             child: Text(
@@ -644,11 +713,10 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         return ListView.builder(
-        // ... rest of ListView code
           itemCount: items.length,
           itemBuilder: (context, index) {
             final item = items[index];
-            
+        
             return Dismissible(
               key: Key(item.id),
               background: Container(
@@ -661,7 +729,7 @@ class _HomeScreenState extends State<HomeScreen> {
               confirmDismiss: (direction) async {
                 final localItems = StorageService.getItems();
                 final hiveIndex = localItems.indexWhere((i) => i.id == item.id);
-                
+            
                 if (hiveIndex != -1) {
                   _deleteItem(hiveIndex, item.id);
                   return true;
@@ -689,7 +757,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onChanged: (_) async {
                     final localItems = StorageService.getItems();
                     final hiveIndex = localItems.indexWhere((i) => i.id == item.id);
-                    
+                
                     if (hiveIndex != -1) {
                       _toggleItem(item, hiveIndex);
                     } else {
@@ -722,6 +790,77 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           },
         );
+      },  
+    );
+  } // _end of _buildCloudSyncedList
+  // Add this new method for local-only list
+  Widget _buildLocalList() {
+    final allItems = StorageService.getItems();
+    final items = allItems
+        .where((item) => _currentStore == null || item.storeId == _currentStore!.id)
+        .toList();
+
+    if (items.isEmpty) {
+      return const Center(
+        child: Text(
+          'No items yet.\nTap + to add your first item!',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 16, color: Colors.grey),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      key: ValueKey('local_${_currentStore?.id}_${items.length}'), // Force rebuild
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        // Find the actual index in the full list
+        final actualIndex = allItems.indexWhere((i) => i.id == item.id);
+      
+        return Dismissible(
+          key: Key(item.id),
+          background: Container(
+            color: Colors.red,
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            child: const Icon(Icons.delete, color: Colors.white),
+          ),
+          direction: DismissDirection.endToStart,
+          onDismissed: (direction) {
+            if (actualIndex != -1) {
+              _deleteItem(actualIndex, item.id);
+              setState(() {}); // Refresh UI
+            }
+          },
+          child: ListTile(
+            leading: Checkbox(
+              value: item.isChecked,
+              onChanged: (_) {
+                if (actualIndex != -1) {
+                  _toggleItem(item, actualIndex);
+                  setState(() {}); // Refresh UI
+                }
+              },
+              activeColor: _currentColor,
+            ),
+            title: Text(
+              item.name,
+              style: TextStyle(
+                decoration: item.isChecked ? TextDecoration.lineThrough : null,
+                color: item.isChecked ? Colors.grey : null,
+              ),
+            ),
+            subtitle: _buildSubtitle(item),
+            trailing: Text(
+              'Qty: ${item.quantity}',
+              style: TextStyle(
+                color: item.isChecked ? Colors.grey : Colors.black87,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        );
       },
     );
   }
@@ -729,10 +868,19 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final hasNotes = _currentStore?.notes.isNotEmpty ?? false;
+    final isPremium = SubscriptionService().isPremium;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_currentStore?.name ?? 'FamilyCart'),
+        title: Row(
+        children: [
+          Text(_currentStore?.name ?? 'FamilyCart'),
+          if (isPremium) ...[
+            const SizedBox(width: 8),
+            const Icon(Icons.workspace_premium, color: Colors.amber, size: 20),
+          ],
+        ],
+        ),
         backgroundColor: _currentColor,
         foregroundColor: Colors.white,
         actions: [
@@ -743,7 +891,29 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.people),
+            onPressed: () async {
+              // Debug: Check premium status
+              final isPremium = SubscriptionService().isPremium;
+              debugPrint('=== HOUSEHOLD BUTTON CLICKED ===');
+              debugPrint('Premium status: $isPremium');
+    
+              if (isPremium) {
+                // User is premium - go directly to household screen
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const HouseholdScreen()),
+                );
+              } else {
+                // Not premium - show paywall
+                await _checkPremiumOrShowPaywall();
+              }
+            },
+            tooltip: 'Household',
+          ),  
+          IconButton(
+            icon: const Icon(Icons.people),
             onPressed: () {
+              // Skip premium check for testing - go directly to household
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const HouseholdScreen()),
@@ -758,13 +928,15 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'change_name') {
                 _showSetUserNameDialog();
+              } else if (value == 'upgrade') {
+                await _checkPremiumOrShowPaywall();
               } else if (value == 'logout') {
                 _logout();
               }
-            },
+  },
             itemBuilder: (context) => [
               PopupMenuItem(
                 value: 'change_name',
@@ -776,7 +948,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-              PopupMenuItem(
+              if (!SubscriptionService().isPremium) // Only show if not premium
+                const PopupMenuItem(
+                  value: 'upgrade',
+                  child: Row(
+                    children: [
+                      Icon(Icons.workspace_premium, color: Colors.amber),
+                      SizedBox(width: 8),
+                      Text('Upgrade to Premium', style: TextStyle(color: Colors.amber)),
+                    ],
+                  ),
+                ),
+              const PopupMenuItem(
                 value: 'logout',
                 child: Row(
                   children: [
@@ -787,7 +970,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ],
-          ),
+          ),  
         ],
       ),
       body: Column(

@@ -1,101 +1,102 @@
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:flutter/foundation.dart';
 import '../models/grocery_item.dart';
 import '../models/store.dart';
 
 class StorageService {
-  static const String _itemsBoxName = 'grocery_items';
-  static const String _storesBoxName = 'stores';
-  
   static Box<GroceryItem>? _itemsBox;
   static Box<Store>? _storesBox;
-  // Add this method to StorageService class
-  static Future<void> clearAll() async {
-    await _itemsBox?.clear();
-    await _storesBox?.clear();
- }
 
-  // Initialize Hive
-static Future<void> init() async {
-  await Hive.initFlutter();
-  
-  // Register adapters
-  Hive.registerAdapter(GroceryItemAdapter());
-  Hive.registerAdapter(StoreAdapter());
-  
-  // Open boxes
-  _itemsBox = await Hive.openBox<GroceryItem>(_itemsBoxName);
-  _storesBox = await Hive.openBox<Store>(_storesBoxName);
-  
-  // Create default store if none exist
-if (_storesBox!.isEmpty) {
-  final defaultStore = Store(
-    id: DateTime.now().millisecondsSinceEpoch.toString(),
-    name: 'My Store',
-    createdAt: DateTime.now(),
-    isDefault: true,
-    colorValue: 0xFF4CAF50, // Green
-    notes: '',
-  );
-  await _storesBox!.add(defaultStore);
-}
-}
+  // Initialize with already-opened boxes
+  static void initialize(Box<GroceryItem> itemsBox, Box<Store> storesBox) {
+    _itemsBox = itemsBox;
+    _storesBox = storesBox;
+  }
 
   // Items operations
   static Future<void> addItem(GroceryItem item) async {
+    if (_itemsBox == null) {
+      debugPrint('ERROR: Items box not initialized!');
+      return;
+    }
     await _itemsBox!.add(item);
   }
 
   static Future<void> updateItem(int index, GroceryItem item) async {
+    if (_itemsBox == null) return;
     await _itemsBox!.putAt(index, item);
   }
 
   static Future<void> deleteItem(int index) async {
+    if (_itemsBox == null) return;
     await _itemsBox!.deleteAt(index);
   }
 
-  static List<GroceryItem> getItems({String? storeId}) {
-    if (storeId == null) {
-      return _itemsBox!.values.toList();
-    }
-    return _itemsBox!.values
-        .where((item) => item.storeId == storeId)
-        .toList();
+  static List<GroceryItem> getItems() {
+    if (_itemsBox == null) return [];
+    return _itemsBox!.values.toList();
   }
 
-  static Box<GroceryItem> getItemsBox() => _itemsBox!;
+  static Box<GroceryItem> getItemsBox() {
+    if (_itemsBox == null) {
+      throw Exception('Items box not initialized');
+    }
+    return _itemsBox!;
+  }
 
   // Stores operations
   static Future<void> addStore(Store store) async {
+    if (_storesBox == null) {
+      debugPrint('ERROR: Stores box not initialized!');
+      return;
+    }
     await _storesBox!.add(store);
   }
 
   static Future<void> updateStore(int index, Store store) async {
+    if (_storesBox == null) return;
     await _storesBox!.putAt(index, store);
   }
 
   static Future<void> deleteStore(int index) async {
+    if (_storesBox == null) return;
     await _storesBox!.deleteAt(index);
   }
 
   static List<Store> getStores() {
+    if (_storesBox == null) return [];
     return _storesBox!.values.toList();
   }
 
   static Store? getDefaultStore() {
+    if (_storesBox == null) return null;
+  
+    final stores = getStores();
+    if (stores.isEmpty) {
+      return null;
+    }
+  
+    // Try to find default store
     try {
-      return _storesBox!.values.firstWhere((store) => store.isDefault);
+      return stores.firstWhere((store) => store.isDefault);
     } catch (e) {
-      return _storesBox!.values.isNotEmpty ? _storesBox!.values.first : null;
+      return stores.isNotEmpty ? stores.first : null;
     }
   }
 
   static Future<void> updateStoreNotes(int index, String notes) async {
-  final store = _storesBox!.getAt(index);
-  if (store != null) {
-    final updatedStore = store.copyWith(notes: notes);
-    await _storesBox!.putAt(index, updatedStore);
+    if (_storesBox == null) return;
+    final store = _storesBox!.getAt(index);
+    if (store != null) {
+      final updatedStore = store.copyWith(notes: notes);
+      await _storesBox!.putAt(index, updatedStore);
+    }
   }
-}
 
-  static Box<Store> getStoresBox() => _storesBox!;
+  static Box<Store> getStoresBox() {
+    if (_storesBox == null) {
+      throw Exception('Stores box not initialized');
+    }
+    return _storesBox!;
+  }
 }

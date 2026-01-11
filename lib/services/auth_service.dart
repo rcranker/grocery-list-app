@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_model.dart';
 import 'package:flutter/foundation.dart';
+import 'subscription_service.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -29,47 +30,47 @@ class AuthService {
 
   // Register with email and password
   Future<UserModel?> registerWithEmail({
-      required String email,
-      required String password,
-      required String displayName,
-    }) async {
-      try {
-        // Create auth user
-        final userCredential = await _auth.createUserWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
+    required String email,
+    required String password,
+    required String displayName,
+  }) async {
+    try {
+      final userCredential = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      final user = userCredential.user;
+      if (user == null) return null;
 
-        final user = userCredential.user;
-        if (user == null) return null;
+      await user.updateDisplayName(displayName);
 
-        // Update display name in Firebase Auth
-        await user.updateDisplayName(displayName);
+      final userModel = UserModel(
+        uid: user.uid,
+        email: email,
+        displayName: displayName,
+        createdAt: DateTime.now(),
+        householdId: null,
+        isPremium: false,
+      );
 
-        // Create user document in Firestore
-        final userModel = UserModel(
-          uid: user.uid,
-          email: email,
-          displayName: displayName,
-          createdAt: DateTime.now(),
-          householdId: null,
-          isPremium: false,
-        );
-        // IMPORTANT: Make sure this actually creates the document
       await _firestore.collection('users').doc(user.uid).set(userModel.toMap());
+
+      // Link subscription to user
+      await SubscriptionService().loginUser(user.uid);
 
       debugPrint('User document created for ${user.uid}');
 
-        return userModel;
-      } on FirebaseAuthException catch (e) {
-        throw _handleAuthException(e);
-      } catch (e) {
-        throw 'Registration failed: $e';
-      }
+      return userModel;
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthException(e);
+    } catch (e) {
+      debugPrint('Registration error: $e');
+      throw 'Registration failed: $e';
     }
+  }
 
   // Sign in with email and password
-  Future<UserModel?> signInWithEmail({
+  Future<UserCredential> signInWithEmail({
     required String email,
     required String password,
   }) async {
@@ -78,20 +79,20 @@ class AuthService {
         email: email,
         password: password,
       );
+      // Link subscription to user
+      if (userCredential.user != null) {
+      await SubscriptionService().loginUser(userCredential.user!.uid);
+      }
 
-      final user = userCredential.user;
-      if (user == null) return null;
-
-      return await getUserData(user.uid);
+      return userCredential;
     } on FirebaseAuthException catch (e) {
       throw _handleAuthException(e);
-    } catch (e) {
-      throw 'Sign in failed: $e';
     }
   }
 
   // Sign out
   Future<void> signOut() async {
+    await SubscriptionService().logoutUser();
     await _auth.signOut();
   }
 

@@ -5,18 +5,20 @@ import 'storage_service.dart';
 import '../models/grocery_item.dart';
 import '../models/store.dart';
 import '../models/user_model.dart';
+import '../services/subscription_service.dart';
 
 class SyncService {
   // Singleton pattern
   static final SyncService _instance = SyncService._internal();
   factory SyncService() => _instance;
   SyncService._internal();
-  
+
   final FirestoreService _firestoreService = FirestoreService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   User? get currentUser => _auth.currentUser;
   bool get isLoggedIn => currentUser != null;
+  bool get canUseCloudFeatures => SubscriptionService().isPremium;  // Premium users only
   
   UserModel? _cachedUser;
   String? get householdId => _cachedUser?.householdId;
@@ -152,9 +154,15 @@ class SyncService {
   
     // Add to local storage immediately
     await StorageService.addItem(item);
+    debugPrint('Item saved to local storage');
+
+    // Verify it was saved
+    final localItems = StorageService.getItems();
+    debugPrint('Total local items: ${localItems.length}');
 
     // Sync to cloud if logged in
-    if (isLoggedIn) {
+    if (isLoggedIn && canUseCloudFeatures) {
+      debugPrint('Syncing to cloud (premium user)');
       try {
         final uid = currentUser!.uid;
         final hId = householdId;
@@ -185,6 +193,8 @@ class SyncService {
       } catch (e) {
         debugPrint('Failed to sync item to cloud: $e');
       }
+    } else {
+      debugPrint('Skipping cloud sync (not premium)');
     }
   }
 
@@ -196,8 +206,8 @@ class SyncService {
     // Update local storage immediately
     await StorageService.updateItem(localIndex, item);
 
-    // Sync to cloud if logged in
-    if (isLoggedIn) {
+    // Sync to cloud if Premium user
+    if (isLoggedIn && canUseCloudFeatures) {
       try {
         final collection = _firestoreService.getItemsCollection(
           currentUser!.uid,
@@ -222,24 +232,34 @@ class SyncService {
   // Delete item from both local and cloud
   Future<void> deleteItem(int localIndex, String itemId) async {
     await ensureUserDataLoaded();
-    
-    // Delete from local storage immediately (if index is valid)
-    if (localIndex >= 0) {
-      await StorageService.deleteItem(localIndex);
-    }
-
-    // Sync to cloud if logged in
-    if (isLoggedIn) {
+  
+    debugPrint('=== DELETE ITEM ===');
+    debugPrint('Item ID: $itemId');
+    debugPrint('Local index: $localIndex');
+  
+    // Delete from cloud first if premium
+    if (isLoggedIn && canUseCloudFeatures) {
       try {
         final collection = _firestoreService.getItemsCollection(
           currentUser!.uid,
           householdId: householdId,
         );
         await collection.doc(itemId).delete();
-        debugPrint('Item deletion synced to cloud');
+        debugPrint('Item deleted from cloud');
       } catch (e) {
-        debugPrint('Failed to sync item deletion to cloud: $e');
+        debugPrint('Failed to delete item from cloud: $e');
       }
+    }
+  
+    // Delete from local storage if it exists (using the actual index)
+    final localItems = StorageService.getItems();
+    final actualIndex = localItems.indexWhere((i) => i.id == itemId);
+  
+    if (actualIndex != -1) {
+      await StorageService.deleteItem(actualIndex);
+      debugPrint('Item deleted from local storage at index $actualIndex');
+    } else {
+      debugPrint('Item not found in local storage (cloud-only item)');
     }
   }
 
@@ -248,12 +268,12 @@ class SyncService {
   // Add store to both local and cloud
   Future<void> addStore(Store store) async {
     await ensureUserDataLoaded();
-    
+  
     // Add to local storage immediately
     await StorageService.addStore(store);
 
-    // Sync to cloud if logged in
-    if (isLoggedIn) {
+    // Only sync to cloud if premium
+    if (isLoggedIn && canUseCloudFeatures) {
       try {
         final collection = _firestoreService.getStoresCollection(
           currentUser!.uid,
@@ -273,6 +293,7 @@ class SyncService {
     }
   }
 
+
   // Update store in both local and cloud
   Future<void> updateStore(int localIndex, Store store) async {
     await ensureUserDataLoaded();
@@ -280,8 +301,8 @@ class SyncService {
     // Update local storage immediately
     await StorageService.updateStore(localIndex, store);
 
-    // Sync to cloud if logged in
-    if (isLoggedIn) {
+    // Sync to cloud if Premium user
+    if (isLoggedIn && canUseCloudFeatures) {
       try {
         final collection = _firestoreService.getStoresCollection(
           currentUser!.uid,
@@ -316,8 +337,8 @@ class SyncService {
     // Delete from local storage immediately
     await StorageService.deleteStore(localIndex);
 
-    // Sync to cloud if logged in
-    if (isLoggedIn) {
+    // Sync to cloud if Premium user
+    if (isLoggedIn && canUseCloudFeatures) {
       try {
         final collection = _firestoreService.getStoresCollection(
           currentUser!.uid,
@@ -335,7 +356,7 @@ class SyncService {
 
   // Get items stream from Firestore (real-time updates)
   Stream<List<GroceryItem>>? getItemsStream({String? storeId}) {
-    if (!isLoggedIn) return null;
+    if (!isLoggedIn || !canUseCloudFeatures) return null;
 
     debugPrint('=== GET ITEMS STREAM ===');
     debugPrint('householdId: $householdId');
@@ -345,6 +366,8 @@ class SyncService {
       currentUser!.uid,
       householdId: householdId,
     );
+
+    debugPrint('Stream collection path: ${collection.path}');
 
     var query = collection.orderBy('createdAt', descending: true);
     
@@ -356,7 +379,8 @@ class SyncService {
       return snapshot.docs.map((doc) {
         try {
           final data = doc.data();
-          
+          debugPrint('Item from stream: ${doc.id} - ${data['name']}'); // Add this line
+
           // Validate required fields
           if (data['name'] == null || data['createdAt'] == null) {
             debugPrint('Skipping invalid item: ${doc.id}');
@@ -390,16 +414,23 @@ class SyncService {
 
   // Get stores stream from Firestore (real-time updates)
   Stream<List<Store>>? getStoresStream() {
-    if (!isLoggedIn) return null;
+    if (!isLoggedIn || !canUseCloudFeatures) return null;
+
+    debugPrint('=== GET STORES STREAM ===');
+    debugPrint('householdId: $householdId');
     
     final collection = _firestoreService.getStoresCollection(
       currentUser!.uid,
       householdId: householdId,
     );
 
+    debugPrint('Stores stream collection path: ${collection.path}');
+
     return collection.orderBy('createdAt').snapshots().map((snapshot) {
+      debugPrint('Stores stream received ${snapshot.docs.length} stores');
       return snapshot.docs.map((doc) {
         final data = doc.data();
+        debugPrint('Store from stream: ${doc.id} - ${data['name']} - notes: ${data['notes']}');
         return Store(
           id: doc.id,
           name: data['name'] as String,

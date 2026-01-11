@@ -1,19 +1,49 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'screens/auth/login_screen.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'firebase_options.dart';
+import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
-import 'services/storage_service.dart';
 import 'services/sync_service.dart';
+import 'services/subscription_service.dart';
+import 'services/storage_service.dart';  // Add this line
+import 'models/grocery_item.dart';
+import 'models/store.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize Firebase
-  await Firebase.initializeApp();
+  await Hive.initFlutter();
+  Hive.registerAdapter(GroceryItemAdapter());
+  Hive.registerAdapter(StoreAdapter());
   
-  // Initialize Hive (local storage)
-  await StorageService.init();
+  // Open boxes
+  final itemsBox = await Hive.openBox<GroceryItem>('items');
+  final storesBox = await Hive.openBox<Store>('stores');
+  
+  // Initialize StorageService with opened boxes
+  StorageService.initialize(itemsBox, storesBox);
+  
+  // Create default store if none exist
+  if (storesBox.isEmpty) {
+    final defaultStore = Store(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: 'My Store',
+      createdAt: DateTime.now(),
+      isDefault: true,
+      colorValue: 0xFF4CAF50, // Green
+      notes: '',
+    );
+    await storesBox.add(defaultStore);
+  }
+  
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  // Initialize RevenueCat
+  await SubscriptionService().initialize();
   
   runApp(const FamilyCartApp());
 }
@@ -82,6 +112,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
           );
         }
 
+        // User is NOT logged in - show login screen
         return const LoginScreen();
       },
     );
