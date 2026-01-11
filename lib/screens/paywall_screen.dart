@@ -185,7 +185,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                           width: isSelected ? 2 : 1,
                         ),
                         borderRadius: BorderRadius.circular(12),
-                        color: isSelected ? Colors.green.withOpacity(0.1) : null,
+                        color: isSelected ? Colors.green.withValues(alpha:0.1) : null,
                       ),
                       child: Row(
                         children: [

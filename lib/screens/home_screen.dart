@@ -245,6 +245,8 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton(
             onPressed: () async {
               if (nameController.text.trim().isNotEmpty) {
+                final navigator = Navigator.of(context);
+
                 await _addItem(
                   name: nameController.text.trim(),
                   quantity: int.tryParse(quantityController.text) ?? 1,
@@ -259,8 +261,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (mounted) {
                   setState(() {});
                 }
-
-                Navigator.pop(context);
+                navigator.pop();
               }
             },
             child: const Text('Add'),
@@ -513,6 +514,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 TextButton(
                   onPressed: () async {
                     if (controller.text.trim().isNotEmpty) {
+                      final navigator = Navigator.of(context);
+  
                       final updatedStore = store.copyWith(
                         name: controller.text.trim(),
                         colorValue: selectedColor.toARGB32(),
@@ -542,13 +545,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
       
                       // Update current store if this is the selected one
-                      if (_currentStore?.id == store.id) {
+                      if (_currentStore?.id == store.id && mounted) {
                         setState(() {
                           _currentStore = updatedStore;
                         });
                       }
-      
-                      Navigator.pop(context);
+
+                      navigator.pop();
                     }
                   },
                   child: const Text('Save'),
@@ -729,7 +732,7 @@ class _HomeScreenState extends State<HomeScreen> {
               confirmDismiss: (direction) async {
                 final localItems = StorageService.getItems();
                 final hiveIndex = localItems.indexWhere((i) => i.id == item.id);
-            
+
                 if (hiveIndex != -1) {
                   _deleteItem(hiveIndex, item.id);
                   return true;
@@ -741,11 +744,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     );
                     return true;
                   } catch (e) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error deleting: $e')),
-                      );
-                    }
+                    // Can't use context after async - just log the error
+                    debugPrint('Error deleting item: $e');
                     return false;
                   }
                 }
@@ -894,10 +894,8 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () async {
               // Debug: Check premium status
               final isPremium = SubscriptionService().isPremium;
-              debugPrint('=== HOUSEHOLD BUTTON CLICKED ===');
-              debugPrint('Premium status: $isPremium');
     
-              if (isPremium) {
+              if (isPremium && mounted) {
                 // User is premium - go directly to household screen
                 Navigator.push(
                   context,
@@ -910,17 +908,6 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             tooltip: 'Household',
           ),  
-          IconButton(
-            icon: const Icon(Icons.people),
-            onPressed: () {
-              // Skip premium check for testing - go directly to household
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const HouseholdScreen()),
-              );
-            },
-            tooltip: 'Household',
-          ),
           IconButton(
             icon: const Icon(Icons.store),
             onPressed: _showStoreSelector,
@@ -980,9 +967,9 @@ class _HomeScreenState extends State<HomeScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: _currentColor.withOpacity(0.1),
+                color: _currentColor.withValues(alpha:0.1),
                 border: Border(
-                  bottom: BorderSide(color: _currentColor.withOpacity(0.3)),
+                  bottom: BorderSide(color: _currentColor.withValues(alpha:0.3)),
                 ),
               ),
               child: Row(
@@ -993,7 +980,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Text(
                       _currentStore!.notes,
                       style: TextStyle(
-                        color: _currentColor.withOpacity(0.8),
+                        color: _currentColor.withValues(alpha:0.8),
                         fontSize: 13,
                       ),
                       maxLines: 2,
