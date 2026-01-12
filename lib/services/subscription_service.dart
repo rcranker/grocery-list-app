@@ -15,7 +15,7 @@ class SubscriptionService {
     
     PurchasesConfiguration configuration;
     
-    // TODO: Replace with your actual RevenueCat API keys
+    // TODO:Using test API keys - replace with production keys before Play Store release
     if (defaultTargetPlatform == TargetPlatform.android) {
       configuration = PurchasesConfiguration('test_KSvAgNhtkBvAalyuUFnACWEvsxi');
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
