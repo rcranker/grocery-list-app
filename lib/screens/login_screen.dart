@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -138,7 +139,37 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              
+              // ADD THIS SECTION HERE:
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  TextButton(
+                    onPressed: () async {
+                      final url = Uri.parse('https://rcranker.github.io/grocery-list-app/privacy-policy.html');
+                      if (await canLaunchUrl(url)) {
+                        await launchUrl(url, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    child: const Text(
+                      'Privacy Policy',
+                      style: TextStyle(fontSize: 11, decoration: TextDecoration.underline),
+                    ),
+                  ),
+                  const Text(' • ', style: TextStyle(fontSize: 11)),
+                  TextButton(
+                    onPressed: () async {
+                      final url = Uri.parse('https://rcranker.github.io/grocery-list-app/terms-of-service.html');
+                      if (await canLaunchUrl(url)) {
+                        await launchUrl(url, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    child: const Text(
+                      'Terms of Service',
+                      style: TextStyle(fontSize: 11, decoration: TextDecoration.underline),
+                    ),
+                  ),
+                ],
+              ),
               TextButton(
                 onPressed: () {
                   setState(() {
