@@ -513,49 +513,87 @@ class _HomeScreenState extends State<HomeScreen> {
               if (!store.isDefault)
                 TextButton(
                   onPressed: () async {
-                    if (controller.text.trim().isNotEmpty) {
-                      final navigator = Navigator.of(context);
-  
-                      final updatedStore = store.copyWith(
-                        name: controller.text.trim(),
-                        colorValue: selectedColor.toARGB32(),
-                      );
-      
-                      // Update in cloud first (if premium)
-                      if (_syncService.isLoggedIn && _syncService.canUseCloudFeatures) {
-                        try {
-                          final uid = _syncService.currentUser!.uid;
-                          final householdId = _syncService.householdId;
-                          final collection = _firestoreService.getStoresCollection(uid, householdId: householdId);
-                          await collection.doc(updatedStore.id).update({
-                            'name': updatedStore.name,
-                            'colorValue': updatedStore.colorValue,
-                          });
-                          debugPrint('Store updated in cloud');
-                        } catch (e) {
-                          debugPrint('Error updating store in cloud: $e');
-                        }
+                    // Delete from cloud first (if premium)
+                    if (_syncService.isLoggedIn && _syncService.canUseCloudFeatures) {
+                      try {
+                        final uid = _syncService.currentUser!.uid;
+                        final householdId = _syncService.householdId;
+                        final collection = _firestoreService.getStoresCollection(uid, householdId: householdId);
+                        await collection.doc(store.id).delete();
+                        debugPrint('Store deleted from cloud: ${store.id}');
+                      } catch (e) {
+                        debugPrint('Error deleting store from cloud: $e');
                       }
-      
-                      // Update in local storage
-                      final localStores = StorageService.getStores();
-                      final localIndex = localStores.indexWhere((s) => s.id == store.id);
-                      if (localIndex != -1) {
-                        await StorageService.updateStore(localIndex, updatedStore);
-                      }
-      
-                      // Update current store if this is the selected one
-                      if (_currentStore?.id == store.id && mounted) {
-                        setState(() {
-                          _currentStore = updatedStore;
-                        });
-                      }
-
-                      navigator.pop();
                     }
+        
+                    // Delete from local storage if it exists
+                    final localStores = StorageService.getStores();
+                    final localIndex = localStores.indexWhere((s) => s.id == store.id);
+                    if (localIndex != -1) {
+                      await StorageService.deleteStore(localIndex);
+                      debugPrint('Store deleted from local storage');
+                    }
+        
+                    // Update current store if needed
+                    if (_currentStore?.id == store.id) {
+                      setState(() {
+                       _currentStore = StorageService.getDefaultStore();
+                      });
+                    }
+        
+                    Navigator.pop(context);
                   },
-                  child: const Text('Save'),
+                  child: const Text('Delete', style: TextStyle(color: Colors.red)),
                 ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  if (controller.text.trim().isNotEmpty) {
+                    final navigator = Navigator.of(context);
+
+                    final updatedStore = store.copyWith(
+                      name: controller.text.trim(),
+                      colorValue: selectedColor.toARGB32(),
+                    );
+
+                    // Update in cloud first (if premium)
+                    if (_syncService.isLoggedIn && _syncService.canUseCloudFeatures) {
+                      try {
+                        final uid = _syncService.currentUser!.uid;
+                        final householdId = _syncService.householdId;
+                        final collection = _firestoreService.getStoresCollection(uid, householdId: householdId);
+                        await collection.doc(updatedStore.id).update({
+                          'name': updatedStore.name,
+                          'colorValue': updatedStore.colorValue,
+                        });
+                        debugPrint('Store updated in cloud');
+                      } catch (e) {
+                        debugPrint('Error updating store in cloud: $e');
+                      }
+                    }
+
+                    // Update in local storage
+                    final localStores = StorageService.getStores();
+                    final localIndex = localStores.indexWhere((s) => s.id == store.id);
+                    if (localIndex != -1) {
+                      await StorageService.updateStore(localIndex, updatedStore);
+                    }
+
+                    // Update current store if this is the selected one
+                    if (_currentStore?.id == store.id && mounted) {
+                      setState(() {
+                        _currentStore = updatedStore;
+                      });
+                    }
+
+                    navigator.pop();
+                  }
+                },
+                child: const Text('Save'),
+              ),
             ],
           );
         },
@@ -908,6 +946,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             tooltip: 'Household',
           ),  
+
           IconButton(
             icon: const Icon(Icons.store),
             onPressed: _showStoreSelector,
