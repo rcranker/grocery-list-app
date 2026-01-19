@@ -68,8 +68,10 @@ Stream<UserModel?> getUserStream(String uid) {
     );
     final docRef = await getHouseholdsCollection().add(household.toMap());
   
-    // Update user's householdId
-    await getUserDoc(ownerId).update({'householdId': docRef.id});
+    // Update user's householdId - use set with merge to create if doesn't exist
+    await getUserDoc(ownerId).set({
+      'householdId': docRef.id,
+    }, SetOptions(merge: true));
   
     return docRef.id;
   }

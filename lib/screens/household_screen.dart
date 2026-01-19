@@ -90,12 +90,14 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await _firestoreService.createHousehold(
+      final householdId = await _firestoreService.createHousehold(
         name: name,
-      ownerId: _authService.currentUser!.uid,
-    );
+        ownerId: _authService.currentUser!.uid,
+      );
 
+      debugPrint('Household created with ID: $householdId');  
       if (!mounted) return;
+  
       // Show dialog telling user to logout/login
       await showDialog(
         context: context,
@@ -117,7 +119,6 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
           ],
         ),
       );
-    
     } catch (e) {
       if (!mounted) return;
     
@@ -278,57 +279,75 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Household')),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_household == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Household')),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.people_outline, size: 80, color: Colors.grey),
-                const SizedBox(height: 24),
-                const Text(
-                  'No Household',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Create a household to share grocery lists with family',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 32),
-                ElevatedButton.icon(
-                  onPressed: _createHousehold,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Create Household'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: _joinHousehold,
-                  icon: const Icon(Icons.group_add),
-                  label: const Text('Join Household'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                  ),
-                ),
-              ],
-            ),
-          ),
+  return Scaffold(
+    appBar: AppBar(
+      title: const Text('Household'),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          onPressed: _loadData,
+          tooltip: 'Refresh',
         ),
-      );
-    }
+      ],
+    ),
+    body: const Center(child: CircularProgressIndicator()),
+  );
+}
+
+if (_household == null) {
+  return Scaffold(
+    appBar: AppBar(
+      title: const Text('Household'),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          onPressed: _loadData,
+          tooltip: 'Refresh',
+        ),
+      ],
+    ),
+    body: Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.people_outline, size: 80, color: Colors.grey),
+            const SizedBox(height: 24),
+            const Text(
+              'No Household',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Create a household to share grocery lists with family',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: _createHousehold,
+              icon: const Icon(Icons.add),
+              label: const Text('Create Household'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+              ),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: _joinHousehold,
+              icon: const Icon(Icons.group_add),
+              label: const Text('Join Household'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
 
     // User is in a household
     return Scaffold(
