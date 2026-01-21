@@ -1,5 +1,6 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:purchases_flutter/purchases_flutter.dart' as rc;
 import '../services/subscription_service.dart';
 
 class PaywallScreen extends StatefulWidget {
@@ -11,9 +12,9 @@ class PaywallScreen extends StatefulWidget {
 
 class _PaywallScreenState extends State<PaywallScreen> {
   final SubscriptionService _subscriptionService = SubscriptionService();
-  Offerings? _offerings;
+  rc.Offerings? _offerings;
   bool _isLoading = true;
-  Package? _selectedPackage;
+  rc.Package? _selectedPackage;
 
   @override
   void initState() {
@@ -23,20 +24,45 @@ class _PaywallScreenState extends State<PaywallScreen> {
 
   Future<void> _loadOfferings() async {
     setState(() => _isLoading = true);
-    
+  
+    debugPrint('=== LOADING OFFERINGS ===');
     final offerings = await _subscriptionService.getOfferings();
-    
+    debugPrint('Offerings: $offerings');
+    debugPrint('Current offering: ${offerings?.current}');
+  
     if (mounted) {
       setState(() {
         _offerings = offerings;
-        // Pre-select the annual package if available
-        _selectedPackage = offerings?.current?.availablePackages
-            .firstWhere((pkg) => pkg.identifier.contains('annual'),
-                orElse: () => offerings.current!.availablePackages.first);
+      
+        // Get packages from current offering or default offering
+        final packages = offerings?.current?.availablePackages ?? 
+                      offerings?.getOffering('default')?.availablePackages ?? 
+                      [];
+      
+        debugPrint('Available packages: ${packages.length}');
+        for (var pkg in packages) {
+          debugPrint('Package: ${pkg.identifier}');
+        }
+      
+        if (packages.isNotEmpty) {
+          // Try to find annual package, otherwise use first package
+          try {
+            _selectedPackage = packages.firstWhere(
+              (pkg) => pkg.identifier.contains('annual'),
+            );
+          } catch (e) {
+            _selectedPackage = packages.first;
+          }
+          debugPrint('Selected package: ${_selectedPackage?.identifier}');
+        } else {
+          debugPrint('ERROR: No packages available!');
+        }
+
         _isLoading = false;
       });
     }
   }
+  
 
   Future<void> _purchase() async {
     if (_selectedPackage == null) return;
@@ -57,14 +83,27 @@ class _PaywallScreenState extends State<PaywallScreen> {
     }
   }
 
-  Future<void> _restore() async {
+
+  Future<void> _restore() async {  // Fix: added space before ()
     setState(() => _isLoading = true);
+  
+    try {  // Add try block
+      // Make sure we're logged into RevenueCat first
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        try {
+          await rc.Purchases.logIn(uid);
+        } catch (e) {
+          debugPrint('RevenueCat login error: $e');
+        }
+      }
     
-    final success = await _subscriptionService.restorePurchases();
+      final success = await _subscriptionService.restorePurchases();
     
-    if (mounted) {
+      if (!mounted) return;
+    
       setState(() => _isLoading = false);
-      
+    
       if (success) {
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -75,11 +114,21 @@ class _PaywallScreenState extends State<PaywallScreen> {
           const SnackBar(content: Text('No purchases found')),
         );
       }
+    } catch (e) {
+      debugPrint('Error restoring: $e');
+      if (!mounted) return;
+    
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error restoring purchases: $e')),
+      );
     }
   }
 
+
+
   // Calculate savings percentage
-  String _calculateSavings(List<Package> packages) {
+  String _calculateSavings(List<rc.Package> packages) {
     if (packages.length < 2) return '0';
     
     try {
@@ -270,8 +319,13 @@ class _PaywallScreenState extends State<PaywallScreen> {
               ),
               child: const Text('Start Premium'),
             ),
-            
+
             const SizedBox(height: 16),
+              TextButton(
+                onPressed: _restore,
+                child: const Text('Restore Purchases'),
+              ),
+            
             
             const Text(
               'Cancel anytime. Terms apply.',

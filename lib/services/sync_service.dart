@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:purchases_flutter/purchases_flutter.dart' as rc hide Store;
 import 'firestore_service.dart';
 import 'storage_service.dart';
 import '../models/grocery_item.dart';
@@ -34,9 +35,21 @@ class SyncService {
     debugPrint('=== INITIALIZE SYNC ===');
     debugPrint('User ID: $uid');
 
+    // LOGIN TO REVENUECAT WITH FIREBASE UID
+    try {
+      await rc.Purchases.logIn(uid);
+      debugPrint('✅ Logged into RevenueCat as: $uid');
+    } catch (e) {
+      debugPrint('❌ Error logging into RevenueCat: $e');
+    }
+    // CHECK SUBSCRIPTION STATUS
+    await SubscriptionService().checkSubscriptionStatus();
+    debugPrint('✅ SUBSCRIPTION CHECK RETURNED');
+    debugPrint('Premium status: ${SubscriptionService().isPremium}');
+
     // Load user data to get household info
     _cachedUser = await _firestoreService.getUserData(uid);
-    
+  
     debugPrint('User loaded: ${_cachedUser?.displayName}');
     debugPrint('Household ID: ${_cachedUser?.householdId}');
 

@@ -1,4 +1,5 @@
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:purchases_flutter/purchases_flutter.dart' as rc hide Store;
 import 'package:flutter/foundation.dart';
 
 class SubscriptionService {
@@ -15,31 +16,39 @@ class SubscriptionService {
     
     PurchasesConfiguration configuration;
     
-    // TODO:Using test API keys - replace with production keys before Play Store release
+    // Production keys for Play Store release
     if (defaultTargetPlatform == TargetPlatform.android) {
-      configuration = PurchasesConfiguration('test_KSvAgNhtkBvAalyuUFnACWEvsxi');
-    } else if (defaultTargetPlatform == TargetPlatform.iOS) {
-      configuration = PurchasesConfiguration('test_KSvAgNhtkBvAalyuUFnACWEvsxi');
+      configuration = PurchasesConfiguration('goog_RYLUAsSjndChBcdKeRRnPXqHLOB');
     } else {
       return;
     }
     
     await Purchases.configure(configuration);
     
-    // Check current subscription status
-    //await checkSubscriptionStatus();
   }
 
   // Check if user has active subscription
   Future<void> checkSubscriptionStatus() async {
+    debugPrint('=== CHECKING SUBSCRIPTION STATUS ===');
     try {
       final customerInfo = await Purchases.getCustomerInfo();
-      _isPremium = customerInfo.entitlements.active.isNotEmpty;
-      debugPrint('Premium status: $_isPremium');
-    } catch (e) {
-      debugPrint('Error checking subscription: $e');
+    
+      debugPrint('Customer ID: ${customerInfo.originalAppUserId}');
+      debugPrint('All entitlements: ${customerInfo.entitlements.all.keys}');
+    
+      final premiumEntitlement = customerInfo.entitlements.all['premium'];
+      debugPrint('Premium entitlement: $premiumEntitlement');
+      debugPrint('Is active: ${premiumEntitlement?.isActive}');
+    
+      _isPremium = premiumEntitlement?.isActive ?? false;
+    
+      debugPrint('Final _isPremium value: $_isPremium');
+    } catch (e, stackTrace) {
+      debugPrint('❌ ERROR checking subscription: $e');
+      debugPrint('Stack trace: $stackTrace');
       _isPremium = false;
     }
+    debugPrint('=== SUBSCRIPTION CHECK COMPLETE ===');
   }
 
   // Get available offerings
@@ -80,17 +89,21 @@ class SubscriptionService {
   // Login user (links subscription to account)
   Future<void> loginUser(String userId) async {
     try {
-      await Purchases.logIn(userId);
-      await checkSubscriptionStatus();
+      debugPrint('🔐 Logging into RevenueCat with user: $userId');
+        await rc.Purchases.logIn(userId);
+        debugPrint('✅ RevenueCat login successful');
+    
+        await checkSubscriptionStatus();
+        debugPrint('Premium status after login: $_isPremium');
     } catch (e) {
-      debugPrint('Error logging in user: $e');
+      debugPrint('❌ Error logging in user to RevenueCat: $e');
     }
   }
 
   // Logout user
   Future<void> logoutUser() async {
     try {
-      await Purchases.logOut();
+      await rc.Purchases.logOut();
       _isPremium = false;
     } catch (e) {
       debugPrint('Error logging out: $e');

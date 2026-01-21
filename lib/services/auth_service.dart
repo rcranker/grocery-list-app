@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:purchases_flutter/purchases_flutter.dart' as rc;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_model.dart';
 import 'package:flutter/foundation.dart';
@@ -92,9 +93,9 @@ class AuthService {
 
   // Sign out
   Future<void> signOut() async {
-    await SubscriptionService().logoutUser();
+    await rc.Purchases.logOut();  // Logout from RevenueCat too
     await _auth.signOut();
-  }
+}
 
   // Send password reset email
   Future<void> sendPasswordResetEmail(String email) async {

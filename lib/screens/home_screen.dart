@@ -207,7 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 autofocus: true,
                 textCapitalization: TextCapitalization.words,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
               TextField(
                 controller: quantityController,
                 decoration: const InputDecoration(
@@ -216,7 +216,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 keyboardType: TextInputType.number,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
               TextField(
                 controller: aisleController,
                 decoration: const InputDecoration(
@@ -225,7 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 keyboardType: TextInputType.number,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
               TextField(
                 controller: categoryController,
                 decoration: const InputDecoration(
