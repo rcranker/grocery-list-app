@@ -36,14 +36,21 @@ class AuthService {
     required String displayName,
   }) async {
     try {
+      debugPrint('🔹 Step 1: Creating Firebase Auth user...');
       final userCredential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
       final user = userCredential.user;
-      if (user == null) return null;
+      if (user == null) {
+        debugPrint('❌ No user returned from Firebase Auth');
+        return null;
+      }
+      debugPrint('✅ Firebase Auth user created: ${user.uid}');
 
+      debugPrint('🔹 Step 2: Updating display name...');
       await user.updateDisplayName(displayName);
+      debugPrint('✅ Display name updated');
 
       final userModel = UserModel(
         uid: user.uid,
@@ -54,18 +61,21 @@ class AuthService {
         isPremium: false,
       );
 
+      debugPrint('🔹 Step 3: Creating Firestore document...');
       await _firestore.collection('users').doc(user.uid).set(userModel.toMap());
+      debugPrint('✅ Firestore document created');
 
-      // Link subscription to user
+      debugPrint('🔹 Step 4: Logging into RevenueCat...');
       await SubscriptionService().loginUser(user.uid);
-
-      debugPrint('User document created for ${user.uid}');
+      debugPrint('✅ RevenueCat login complete');
 
       return userModel;
     } on FirebaseAuthException catch (e) {
+      debugPrint('❌ Firebase Auth error: ${e.code} - ${e.message}');
       throw _handleAuthException(e);
-    } catch (e) {
-      debugPrint('Registration error: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Registration error: $e');
+      debugPrint('Stack trace: $stackTrace');
       throw 'Registration failed: $e';
     }
   }
@@ -80,9 +90,27 @@ class AuthService {
         email: email,
         password: password,
       );
-      // Link subscription to user
+    
+      // Check if Firestore document exists
+      final userDoc = await _firestore.collection('users').doc(userCredential.user!.uid).get();
+    
+      if (!userDoc.exists) {
+        // Create Firestore document if it doesn't exist
+        debugPrint('Creating missing Firestore document for ${userCredential.user!.uid}');
+        final userModel = UserModel(
+          uid: userCredential.user!.uid,
+          email: email,
+          displayName: userCredential.user!.displayName ?? email.split('@')[0],
+          createdAt: DateTime.now(),
+          householdId: null,
+          isPremium: false,
+        );
+        await _firestore.collection('users').doc(userCredential.user!.uid).set(userModel.toMap());
+      }
+    
+      // Login to RevenueCat
       if (userCredential.user != null) {
-      await SubscriptionService().loginUser(userCredential.user!.uid);
+        await SubscriptionService().loginUser(userCredential.user!.uid);
       }
 
       return userCredential;

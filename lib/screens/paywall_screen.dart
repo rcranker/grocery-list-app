@@ -19,7 +19,34 @@ class _PaywallScreenState extends State<PaywallScreen> {
   @override
   void initState() {
     super.initState();
-    _loadOfferings();
+    _loadOfferings().then((_) {
+      // Show debug dialog after loading
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text('Debug Info'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Offerings: ${_offerings != null ? "Loaded" : "NULL"}'),
+                  Text('Current: ${_offerings?.current?.identifier ?? "none"}'),
+                  Text('Packages: ${_offerings?.current?.availablePackages.length ?? 0}'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+      });
+    });
   }
 
   Future<void> _loadOfferings() async {
@@ -27,8 +54,9 @@ class _PaywallScreenState extends State<PaywallScreen> {
   
     debugPrint('=== LOADING OFFERINGS ===');
     final offerings = await _subscriptionService.getOfferings();
-    debugPrint('Offerings: $offerings');
-    debugPrint('Current offering: ${offerings?.current}');
+    debugPrint('Offerings object: ${offerings != null ? "exists" : "null"}');
+    debugPrint('Current offering: ${offerings?.current?.identifier}');
+    debugPrint('All offerings: ${offerings?.all.keys.toList()}');
   
     if (mounted) {
       setState(() {
@@ -39,9 +67,12 @@ class _PaywallScreenState extends State<PaywallScreen> {
                       offerings?.getOffering('default')?.availablePackages ?? 
                       [];
       
-        debugPrint('Available packages: ${packages.length}');
+        debugPrint('Packages from current: ${offerings?.current?.availablePackages.length ?? 0}');
+        debugPrint('Packages from default: ${offerings?.getOffering('default')?.availablePackages.length ?? 0}');
+        debugPrint('Final packages count: ${packages.length}');
+
         for (var pkg in packages) {
-          debugPrint('Package: ${pkg.identifier}');
+          debugPrint('Package found: ${pkg.identifier} - ${pkg.storeProduct.title}');
         }
       
         if (packages.isNotEmpty) {
@@ -205,6 +236,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
             _buildFeature(Icons.devices, 'Multi-Device', 'Use on phone, tablet, and web'),
             
             const SizedBox(height: 32),
+
             
             // Package selection
             if (packages.isNotEmpty) ...[

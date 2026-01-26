@@ -47,18 +47,34 @@ class _LoginScreenState extends State<LoginScreen> {
           displayName: _nameController.text.trim(),
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('Login/Register error: $e');
+      debugPrint('Stack trace: $stackTrace');
+  
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Error'),
+            content: SingleChildScrollView(
+              child: Text('$e\n\nStack: ${stackTrace.toString().substring(0, 200)}'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+    if (mounted) {
+      setState(() => _isLoading = false);
     }
   }
+}
+  
 
   @override
   Widget build(BuildContext context) {
