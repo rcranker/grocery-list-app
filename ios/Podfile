@@ -42,12 +42,20 @@ post_install do |installer|
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
       
-      # Fix for BoringSSL-GRPC compiler issues
-      config.build_settings['OTHER_CFLAGS'] ||= ['$(inherited)']
-      config.build_settings['OTHER_CFLAGS'].delete('-G')
+      # Remove problematic -G flag from all C flags
+      ['OTHER_CFLAGS', 'OTHER_CPLUSPLUSFLAGS'].each do |flag_name|
+        flags = config.build_settings[flag_name] || ['$(inherited)']
+        flags = [flags] unless flags.is_a?(Array)
+        flags.delete('-G')
+        flags.reject! { |flag| flag == '-G' }
+        config.build_settings[flag_name] = flags
+      end
       
-      if target.name == 'BoringSSL-GRPC'
+      # Additional fixes for BoringSSL-GRPC
+      if target.name.include?('BoringSSL')
         config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '0'
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'GRPC_BAZEL_BUILD=1'
       end
     end
   end
