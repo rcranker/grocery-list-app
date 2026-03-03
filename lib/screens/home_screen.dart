@@ -778,7 +778,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   try {
                     await _firestoreService.deleteItem(
                       _syncService.currentUser!.uid, 
-                      item.id
+                      item.id,
+                      householdId: _syncService.householdId,
                     );
                     return true;
                   } catch (e) {

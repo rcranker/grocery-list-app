@@ -292,8 +292,8 @@ Stream<UserModel?> getUserStream(String uid) {
   }
 
   // Delete item
-  Future<void> deleteItem(String uid, String itemId) async {
-    await getItemsCollection(uid).doc(itemId).delete();
+  Future<void> deleteItem(String uid, String itemId, {String? householdId}) async {
+    await getItemsCollection(uid, householdId: householdId).doc(itemId).delete();
   }
 
   // Get items stream for a specific store
